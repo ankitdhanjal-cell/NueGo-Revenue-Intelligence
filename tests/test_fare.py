@@ -22,19 +22,18 @@ def test_competitor_join_respects_route_and_window():
     assert f["comp_n"] == 0 and np.isnan(f["comp_min_fare"])  # nothing invented
 
 
-def test_time_split_trains_on_older_and_beats_nothing_silently():
-    rng = np.random.default_rng(0)
-    n = 100
-    df = pd.DataFrame(dict(route_id=rng.choice(["A", "B"], n), booking_time=pd.date_range("2025-01-01", periods=n),
-                           fare_on_sale=rng.integers(300, 600, n), flag_cancelled=False))
-    for c in fare_model.COLUMN_MAP:
-        df[c] = df.get(c, rng.random(n))
-    df["ac"] = rng.integers(0, 2, n)
-    df["sleeper"] = rng.integers(0, 2, n)
-    b = fare_model.train(df)
-    assert b["metrics"]["n_train"] == 80 and b["metrics"]["n_test"] == 20
-    assert pd.Timestamp(b["metrics"]["split_date"]) == df["booking_time"].iloc[80]  # test is the newest
-    assert {"mae_model", "mae_route_median_baseline"} <= b["metrics"].keys()
+def test_range_comes_from_models_own_errors_and_is_labelled_in_sample():
+    class Const:
+        def predict(self, X):
+            return np.full(len(X), 400.0)
+    n = 20
+    f = pd.DataFrame({c: np.ones(n) for c in fare_model.COLUMN_MAP})
+    f["route_id"] = "A"
+    f["flag_cancelled"] = False
+    f["fare_on_sale"] = np.arange(n) * 10 + 300.0
+    b = fare_model.make_bundle(Const(), f)
+    err = np.abs(f["fare_on_sale"] - 400.0)
+    assert b["half_width"] == float(np.quantile(err, 0.8)) and "in-sample" in b["range_basis"]
 
 
 def test_prediction_has_ordered_range_flag_and_version():
@@ -55,7 +54,7 @@ def test_service_fare_prediction_endpoint():
 
 
 def test_no_coach_type_means_no_prediction_not_a_guess():
-    b = fare_model.load()
+    b = dict(model=None, version="v", half_width=100.0, train_routes={"R001": 50})
     f = pd.DataFrame([dict(route_id="R001", ac=np.nan, sleeper=np.nan, comp_n=0, **{
         c: 1.0 for c in fare_model.COLUMN_MAP if c not in ("route_id", "ac", "sleeper")})])
     p = fare_model.predict(b, f).iloc[0]

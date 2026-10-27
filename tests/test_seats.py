@@ -17,27 +17,24 @@ def _df(n=100):
     return df
 
 
-def test_time_split_and_baseline_reported():
-    b = seat_model.train(_df())
-    m = b["metrics"]
-    assert m["n_train"] == 80 and m["n_test"] == 20
-    assert {"mae_model", "mae_route_mean_baseline", "mae_with_days_to_go", "corr_seats_vs_days_to_go"} <= m.keys()
-
-
-def test_prediction_range_is_ordered_and_within_capacity():
+def test_range_from_models_own_errors_and_capacity():
+    class Const:
+        def predict(self, X):
+            return np.full(len(X), 20.0)
     df = _df()
-    b = seat_model.train(df)
-    b["model"] = seat_model.make_model().fit(seat_model.model_frame(df), df["seats_sold"])
+    b = seat_model.make_bundle(Const(), df)
     p = seat_model.predict(b, df)
     assert (p["expected_low"] <= p["expected_mid"]).all() and (p["expected_mid"] <= p["expected_high"]).all()
-    assert (p["expected_high"] <= 40).all() and (p["expected_low"] >= 0).all()
+    assert (p["expected_high"] <= 40).all() and (p["expected_low"] >= 0).all() and "in-sample" in b["range_basis"]
 
 
 def test_no_coach_type_means_no_prediction():
     df = _df(30)
     df.loc[0, "ac"] = np.nan
-    b = seat_model.train(_df())
-    b["model"] = seat_model.make_model().fit(seat_model.model_frame(_df()), _df()["seats_sold"])
+    class Const:
+        def predict(self, X):
+            return np.full(len(X), 20.0)
+    b = seat_model.make_bundle(Const(), _df())
     p = seat_model.predict(b, df)
     assert np.isnan(p.loc[0, "expected_mid"]) and p.loc[0, "insufficient_data"]
 

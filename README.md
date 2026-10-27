@@ -10,15 +10,13 @@ pip install -r requirements.txt
 docker compose up -d                     # Postgres (pi_beta) + pgAdmin on :8090; reads .env
 python -m scripts.load_raw_csv           # raw CSVs -> raw_route_details, raw_competitor_data
 python -m scripts.build_clean_tables     # -> services, competitor_fares
-python -m scripts.train_fare_model       # honest time-split evaluation of the fare tree
-python -m scripts.train_seat_model       # same for the seat tree
 python -m scripts.compute_fare_predictions
 python -m scripts.compute_forecasts      # must run before compute_pnl
 python -m scripts.compute_pnl
 uvicorn app.main:app --reload            # docs at http://localhost:8000/docs
 python -m pytest -q
 ```
-Models served: `models/nuego_fare_model.pkl`, `models/nuego_seats_sold_model.pkl` (team Decision Trees).
+Models served: `models/nuego_fare_model.pkl`, `models/nuego_seats_sold_model.pkl` (team Decision Trees, used as-is).
 Their AC/Sleeper inputs come from `data/processed/nuego_train_241_ac_sleeper.csv`; services without a
 match get no prediction. Settings in `.env`: `TRIPS_PER_ROUTE_MONTH` (default 30, an assumption),
 `RANK_W_BEHIND`, `RANK_W_MARGIN` (default 0.5 each), `FLOOR_SWITCH_HOURS` (default 24, an assumption: hours before departure when the marginal floor takes over).
@@ -44,11 +42,13 @@ curl -X POST localhost:8000/fare/predict -H 'content-type: application/json' \
   -d '{"route_id":"R001","departure_at":"2026-03-01T08:00","available_seats":20,"ac":1,"sleeper":0,"engine_fare":500}'
 ```
 
-## Model results (time-based split, newest 20% held out)
-| Model | MAE | Baseline MAE | Note |
-|---|---|---|---|
-| Fare tree | 85.0 INR | 91.2 (route median) | range +-125 INR; model under-predicts newer fares by ~77 INR on average |
-| Seat tree | 7.05 seats | 7.24 (route mean) | range +-12.8 seats; days-to-go adds nothing (7.01) |
+## Models and ranges
+No model is trained here: the two team pickles are used as they are. The low/high range is the
+80th percentile of the pickle's own errors on the data (`range_basis` says so). Those errors are
+in-sample, so the range is optimistic. A one-off check that refit the same trees on older rows and
+tested on the newest 20% gave: fare MAE 85 INR vs 91 INR route-median baseline (about +-125 INR
+range, newer fares ~77 INR above prediction); seats MAE 7.05 vs 7.24 route-mean baseline (about
++-12.8 seats). So expect the models to be only slightly better than a simple average.
 
 ## Known limits
 - Only 15 of 245 services have a competitor fare captured before their booking time (+-3 days, same route) -> most fare predictions are flagged `insufficient_data`.
