@@ -3,6 +3,11 @@ from fastapi import FastAPI, HTTPException, Query
 
 from app.db import engine
 from app.pnl import GROUPABLE, UNAVAILABLE, totals
+from datetime import datetime  # noqa: E402
+
+from pydantic import BaseModel  # noqa: E402
+
+from app import fare_model
 
 app = FastAPI(title="NueGo Revenue Intelligence")
 
@@ -39,11 +44,7 @@ def pnl_cancelled():
 
 
 # ---------- Step 3: reference fare prediction (never the suggested fare) ----------
-from datetime import datetime  # noqa: E402
-
-from pydantic import BaseModel  # noqa: E402
-
-from app import fare_model  # noqa: E402
+  # noqa: E402
 
 REFERENCE_NOTE = "Reference only. This is not a suggested fare and is not written to any system."
 

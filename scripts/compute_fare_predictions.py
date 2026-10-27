@@ -4,7 +4,7 @@ Nothing is sent to any external system. Run: python -m scripts.compute_fare_pred
 import pandas as pd
 
 from app import fare_model
-from app.db import engine
+from app.db import engine, write_table
 
 
 def main() -> None:
@@ -16,7 +16,7 @@ def main() -> None:
     out = out.rename(columns={"fare_on_sale": "engine_fare"})
     out["gap_to_engine"] = out["fare_mid"] - out["engine_fare"]
     out["is_reference_only"] = True
-    out.to_sql("fare_predictions", engine, if_exists="replace", index=False)
+    write_table(out, "fare_predictions")
     print(f"fare_predictions: {len(out)} rows, insufficient_data: {int(out['insufficient_data'].sum())}")
 
 
