@@ -45,6 +45,37 @@ def clean_money(s: pd.Series) -> pd.Series:
     return pd.to_numeric(s.str.replace(r"[₹,\s]", "", regex=True), errors="coerce")
 
 
+def holiday_score(event: pd.Series) -> pd.Series:
+    """0 = no holiday noted, 0.5 = adjacent travel day, 1 = the holiday itself."""
+    return pd.Series(
+        [0.0 if e.startswith("No major") else 0.5 if e.startswith("Adjacent") else 1.0
+         for e in event], index=event.index)
+
+
+COMP_RENAME = {
+    "Route ID": "route_id", "Competitor Name": "operator", "Departure Date": "departure_date",
+    "Departure Time": "departure_time", "Base Fare (INR)": "base_fare", "Fare (INR)": "fare",
+    "Total Seats": "total_seats", "Available Seats": "available_seats",
+    "Capture Timestamp": "captured_at", "Coach Type": "coach_type_raw",
+}
+
+
+def clean_competitors(raw: pd.DataFrame) -> pd.DataFrame:
+    """Competitor snapshots. coach_type_raw is kept as given ("(verify)"), never interpreted."""
+    df = raw.rename(columns=COMP_RENAME)[list(COMP_RENAME.values())].copy()
+    df = df.apply(lambda c: c.str.strip())
+    for c in ["base_fare", "fare"]:
+        df[c] = clean_money(df[c])
+    for c in ["total_seats", "available_seats"]:
+        df[c] = pd.to_numeric(df[c], errors="coerce")
+    df["departure_at"] = pd.to_datetime(df["departure_date"] + " " + df["departure_time"],
+                                        format="%d-%b-%Y %H:%M")
+    df["captured_at"] = pd.to_datetime(df["captured_at"], format="%d-%b-%Y %H:%M")
+    df["flag_captured_after_departure"] = df["captured_at"] > df["departure_at"]
+    df["flag_fare_below_base"] = df["fare"] < df["base_fare"]
+    return df.drop(columns=["departure_date", "departure_time"])
+
+
 def clean_services(raw: pd.DataFrame) -> pd.DataFrame:
     df = raw.rename(columns=RENAME)[list(RENAME.values())].copy()
     df = df.apply(lambda c: c.str.strip())
@@ -69,7 +100,30 @@ def clean_services(raw: pd.DataFrame) -> pd.DataFrame:
     df["flag_missing_duration"] = df["duration_hours"].isna()
     df["flag_booked_after_departure"] = df["days_to_go"] < 0
     df["flag_seats_invalid"] = (df["seats_sold"] < 0) | (df["seats_sold"] > df["total_seats"])
+    df["departure_month"] = df["departure_at"].dt.month
+    df["departure_weekday"] = df["departure_at"].dt.day_of_week
+    df["departure_hour"] = df["departure_at"].dt.hour
+    df["holiday_score"] = holiday_score(df["holiday_event"])
     df["flag_cancelled"] = df["booking_status"].eq("Cancelled")
 
     df.insert(0, "service_id", df["booking_id"])  # one booking row per service in this data
     return df
+
+
+COACH_ATTRS_CSV = "data/processed/nuego_train_241_ac_sleeper.csv"
+
+
+def attach_coach_attrs(services: pd.DataFrame, csv_path) -> pd.DataFrame:
+    """Add ac / sleeper from the team-supplied processed file (the NueGo raw file has none).
+
+    Matched one-to-one on route + seats + departure month/weekday/hour + fare. Services
+    with no match (the 5 'original sample rows') keep NaN: coach type is never guessed.
+    """
+    a = pd.read_csv(csv_path).rename(columns={
+        "Route ID": "route_id", "Available Seats": "available_seats", "Departure Month": "departure_month",
+        "Departure Weekday": "departure_weekday", "Departure Hour": "departure_hour",
+        "Fare on Sale (INR)": "fare_on_sale", "AC": "ac", "Sleeper": "sleeper"})
+    key = ["route_id", "available_seats", "departure_month", "departure_weekday", "departure_hour", "fare_on_sale"]
+    out = services.merge(a[key + ["ac", "sleeper"]].drop_duplicates(key), on=key, how="left")
+    out["coach_attrs_source"] = out["ac"].map(lambda v: None if pd.isna(v) else "team file nuego_train_241_ac_sleeper.csv")
+    return out
