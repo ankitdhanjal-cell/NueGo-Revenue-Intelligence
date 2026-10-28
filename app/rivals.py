@@ -38,6 +38,14 @@ def nearby_rivals(service: pd.Series, comp: pd.DataFrame, as_of) -> list[dict]:
             for i, r in enumerate(c.itertuples())]
 
 
+def either_side(rivals: list[dict]) -> dict:
+    """The nearest rival departing before ours and the nearest at or after ours (None when there is none)."""
+    before = [r for r in rivals if r["minutes_from_ours"] < 0]
+    after = [r for r in rivals if r["minutes_from_ours"] >= 0]
+    return dict(before=max(before, key=lambda r: r["minutes_from_ours"], default=None),
+                after=min(after, key=lambda r: r["minutes_from_ours"], default=None))
+
+
 def rival_view(service: pd.Series, comp: pd.DataFrame, as_of) -> dict:
     """The /rivals response. Our rating comes from the services table (route rating)."""
     rivals = nearby_rivals(service, comp, as_of)

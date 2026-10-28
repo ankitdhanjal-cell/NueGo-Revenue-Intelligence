@@ -23,10 +23,13 @@ import type {
   DeskPage,
   DeskSummary,
   FarePredictInput,
+  Owner,
+  PipelineStatus,
   RouteInfo,
   Rules,
   RulesInput,
   Suggestion,
+  Trend,
   User,
   Warning,
   WhatIf,
@@ -45,6 +48,13 @@ export const useRoutes = () =>
   useQuery({
     queryKey: ['routes'],
     queryFn: () => api<{ items: RouteInfo[] }>('/routes'),
+    staleTime: 5 * MINUTE,
+  });
+
+export const usePipelineStatus = () =>
+  useQuery({
+    queryKey: ['pipeline'],
+    queryFn: () => api<PipelineStatus>('/pipeline/status'),
     staleTime: 5 * MINUTE,
   });
 
@@ -78,6 +88,13 @@ export const usePnl = (id: string) =>
   useQuery({
     queryKey: ['pnl', id],
     queryFn: async () => adaptPnl(await api<RawPnl>(`/pnl/services/${id}`)),
+    staleTime: MINUTE,
+  });
+
+export const useTrend = (id: string) =>
+  useQuery({
+    queryKey: ['trend', id],
+    queryFn: () => api<Trend>(`/pnl/services/${id}/trend`),
     staleTime: MINUTE,
   });
 
@@ -117,12 +134,27 @@ export const useTotals = (groupBy: string) =>
     retry: false,
   });
 
-export const useWarnings = () =>
+export const useWarnings = (ownerId?: string) =>
   useQuery({
-    queryKey: ['warnings'],
-    queryFn: () => api<{ items: Warning[] }>('/warnings'),
+    queryKey: ['warnings', ownerId ?? 'all'],
+    queryFn: () => api<{ items: Warning[] }>(`/warnings${qs({ owner_id: ownerId })}`),
     staleTime: MINUTE,
   });
+
+export const useOwners = () =>
+  useQuery({ queryKey: ['owners'], queryFn: () => api<{ items: Owner[] }>('/owners'), staleTime: MINUTE });
+
+export function useSetOwner() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { routeId: string; userId: string | null }) =>
+      api<Owner>(`/owners/${v.routeId}`, { method: 'PUT', body: JSON.stringify({ user_id: v.userId }) }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['owners'] });
+      void qc.invalidateQueries({ queryKey: ['warnings'] });
+    },
+  });
+}
 
 export const useDecisions = (serviceId: string) =>
   useQuery({

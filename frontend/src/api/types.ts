@@ -5,7 +5,8 @@ export interface Range {
   high: number;
 }
 
-export type FlagName = 'cost_missing' | 'no_history' | 'low_confidence' | 'rival_missing' | 'floor_missing';
+export type FlagName =
+  'cost_missing' | 'no_history' | 'low_confidence' | 'rival_missing' | 'floor_missing' | 'sold_out';
 export type Flags = Partial<Record<FlagName, boolean>>;
 export type Status = 'behind' | 'on_pace' | 'ahead';
 export type Role = 'analyst' | 'admin';
@@ -96,6 +97,13 @@ export interface Suggestion {
   reasons: Reason[];
   flags: Flags;
   rules_version: number;
+  rating: Rating;
+  rivals_either_side: { before: Rival | null; after: Rival | null };
+}
+
+export interface Rating {
+  avg: number | null;
+  count: number | null;
 }
 
 export interface WhatIfRow {
@@ -135,11 +143,26 @@ export interface Decision {
   engine_fare: number | null;
   our_fare: number | null;
   outcome: { final_seats: number; revenue: number } | null;
+  rules_version: number | null;
+  model_version: string | null;
+  predicted_fare: number | null;
+  floor_value: number | null;
+}
+
+export interface Owner {
+  route_id: string;
+  route_label: string;
+  owner_id: string | null;
+  owner_name: string | null;
+  assigned_by: string | null;
+  assigned_at: string | null;
 }
 
 export interface Warning {
   id: string;
   service_id: string;
+  corridor_id: string;
+  owner_id: string | null;
   route_label: string;
   seat_gap: number;
   checkpoint: Range;
@@ -190,8 +213,17 @@ export interface Rival {
 export interface Rivals {
   service_id: string;
   rivals: Rival[];
-  rating: { avg: number | null; count: number | null };
+  rating: Rating;
   flags: Flags;
+}
+
+export interface PipelineStatus {
+  last_run: { finished_at: string; status: 'ok' | 'failed'; error: string | null } | null;
+}
+
+export interface Trend {
+  weekday: string;
+  points: { departure_at: string; load_pct: number; revenue: number; margin: number | null }[];
 }
 
 export interface Pnl {

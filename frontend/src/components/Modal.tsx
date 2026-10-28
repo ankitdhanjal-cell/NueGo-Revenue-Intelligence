@@ -7,10 +7,12 @@ interface Props {
   title: string;
   onClose: () => void;
   children: ReactNode;
+  /** Slide in at the right edge instead of the centre. */
+  side?: boolean;
 }
 
 /** Dialog with a focus trap, Escape to close and focus returned to the opener. */
-export default function Modal({ title, onClose, children }: Props) {
+export default function Modal({ title, onClose, children, side = false }: Props) {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -37,7 +39,7 @@ export default function Modal({ title, onClose, children }: Props) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex bg-slate-900/40"
+      className={`fixed inset-0 z-50 flex bg-slate-900/40 ${side ? 'justify-end' : ''}`}
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}
     >
       <div
@@ -46,7 +48,7 @@ export default function Modal({ title, onClose, children }: Props) {
         aria-modal="true"
         aria-label={title}
         onKeyDown={onKeyDown}
-        className="m-auto w-[480px] max-w-full rounded bg-white p-6 shadow-xl"
+        className={`max-w-full bg-white p-6 shadow-xl ${side ? 'h-full w-[440px] overflow-y-auto' : 'm-auto w-[480px] rounded'}`}
       >
         <div className="mb-3 flex items-start justify-between gap-4">
           <h2 className="text-base font-semibold">{title}</h2>

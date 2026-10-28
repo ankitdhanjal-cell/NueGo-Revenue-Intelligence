@@ -5,6 +5,7 @@ import type { Rules, RulesInput } from '../api/types';
 import SectionState from '../components/SectionState';
 import { useToast } from '../components/Toast';
 import FareStepsEditor from '../components/settings/FareStepsEditor';
+import OwnersEditor from '../components/settings/OwnersEditor';
 import { parseFareSteps, validateFareSteps } from '../lib/fareSteps';
 import { formatDateTime } from '../lib/format';
 import { useUser } from '../lib/user';
@@ -119,7 +120,7 @@ function RulesForm({ rules }: { rules: Rules }) {
       </div>
       {readOnly && (
         <p className="rounded bg-slate-100 p-2 text-slate-700">
-          Read-only: only an admin can change the rules. Switch user to Meera Iyer (admin) to edit.
+          Read-only: only an admin can change the rules. Switch to the Admin user to edit.
         </p>
       )}
       <fieldset disabled={readOnly} className="grid grid-cols-2 gap-4">
@@ -173,8 +174,11 @@ function RulesForm({ rules }: { rules: Rules }) {
 export default function SettingsPage() {
   const q = useRules();
   return (
-    <SectionState loading={q.isLoading} error={q.error} rows={6}>
-      {q.data && <RulesForm key={q.data.version} rules={q.data} />}
-    </SectionState>
+    <div className="space-y-6">
+      <SectionState loading={q.isLoading} error={q.error} rows={6}>
+        {q.data && <RulesForm key={q.data.version} rules={q.data} />}
+      </SectionState>
+      <OwnersEditor />
+    </div>
   );
 }

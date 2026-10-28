@@ -5,6 +5,8 @@ segment. It is a correlation, not a causal price response: in this data the engi
 fare as the coach fills, so fare follows demand and the slope usually comes out positive.
 A positive slope is never offered as a price response (enough_data = False). Too few services
 or too few distinct fares -> no slope at all. Nothing is filled in.
+Sold-out services are left out (FR-PRC-002): their true demand was above capacity, so "seats sold"
+understates it. Estimating that demand needs booking pace over time, which the data does not have.
 A regression on real fare experiments or history replaces this when such data exists.
 """
 import numpy as np
@@ -51,9 +53,11 @@ def _observed_points(d: pd.DataFrame) -> list[dict]:
 
 def elasticity(segment: pd.DataFrame) -> dict:
     """Slope range and the honest enough-data verdict for the services in one segment."""
-    d = segment[~segment["flag_cancelled"] & (segment["seats_sold"] > 0) & (segment["fare_on_sale"] > 0)]
+    sold_out = segment["seats_sold"] >= segment["total_seats"]
+    d = segment[~segment["flag_cancelled"] & ~sold_out & (segment["seats_sold"] > 0) & (segment["fare_on_sale"] > 0)]
     n, fares = len(d), int(d["fare_on_sale"].nunique())
-    out = dict(n_services=n, distinct_fares=fares, elasticity=None, enough_data=False, reason=None,
+    out = dict(n_services=n, distinct_fares=fares, sold_out_left_out=int((sold_out & ~segment["flag_cancelled"]).sum()),
+               elasticity=None, enough_data=False, reason=None,
                observed_points=_observed_points(d) if n else [])
     if n < MIN_ELASTICITY_SERVICES:
         out["reason"] = f"not_enough_services (have {n}, need {MIN_ELASTICITY_SERVICES})"

@@ -16,7 +16,7 @@ export default {
         white: '#fffdf8',
         paper: '#f5f1e8',
         slate: colors.stone,
-        brand: { 50: '#ece9e0', 100: '#e0dccf', 600: '#2c3e5c', 700: '#22304a', 900: '#141c2c' },
+        brand: { 100: '#e0dccf', 600: '#2c3e5c', 700: '#22304a', 900: '#141c2c' },
         good: '#2f6b5a',
         bad: '#a3302b',
         ochre: { 50: '#fbf3dc', 100: '#f4e3ae', 700: '#7a5a0e', 900: '#4a3606' },

@@ -95,3 +95,10 @@ def test_api_as_of_later_shows_later_capture(client):
 def test_api_404_and_422(client):
     assert client.get("/rivals/services/NOPE").status_code == 404
     assert client.get("/rivals/services/S1", params={"as_of": "not-a-date"}).status_code == 422
+
+
+def test_either_side_picks_the_nearest_rival_before_and_at_or_after_ours():
+    rows = [dict(label=l, minutes_from_ours=m) for l, m in [("A", -25), ("B", -5), ("C", 0), ("D", 20)]]
+    sides = rivals.either_side(rows)
+    assert sides["before"]["label"] == "B" and sides["after"]["label"] == "C"
+    assert rivals.either_side([]) == dict(before=None, after=None)

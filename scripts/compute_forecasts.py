@@ -1,5 +1,4 @@
 """Expected seats sold per service -> `seat_forecasts`. Run: python -m scripts.compute_forecasts"""
-import numpy as np
 import pandas as pd
 
 from app import seat_model

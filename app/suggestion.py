@@ -8,7 +8,7 @@ change per step, shortest time between changes. So the model sets the price and 
 The team seat model gives the expected seats / revenue / margin ranges at the chosen fare. It says
 more seats at a higher fare in this data (fare follows demand), so when it is not a reliable price
 response (price_response != "used") no gain against the current fare is claimed.
-seats_weight is kept in the rules but is not used while the fare comes from the decision tree.
+seats_weight is kept in the rules but is not used while the fare comes from the fare model.
 The prediction time is the booking snapshot (services.booking_time).
 """
 import numpy as np
@@ -84,7 +84,9 @@ def build_suggestion(svc: dict, rule_row: dict, seat_fn, band: dict | None, riva
                 average_floor_low=_f(svc["average_floor_low"]), average_floor_mid=_f(svc["average_floor_mid"]),
                 average_floor_high=_f(svc["average_floor_high"]), marginal_floor=_f(svc["marginal_floor"]),
                 checkpoint_status=svc["checkpoint_status"], rules_version=rule_row["version"],
-                predicted_fare=svc["predicted_fare"], coach_type=svc.get("coach_type"), note=NOTE)
+                predicted_fare=svc["predicted_fare"], coach_type=svc.get("coach_type"),
+                rating=dict(avg=_f(svc["avg_rating"]), count=svc["num_ratings"]),
+                rivals_either_side=rivals.either_side(rival_list), note=NOTE)
     if svc["flag_cancelled"]:
         return _blocked(base, "CANCELLED", flags)
     if flags["cost_missing"]:

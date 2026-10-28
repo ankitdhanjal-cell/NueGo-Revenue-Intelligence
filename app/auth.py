@@ -19,5 +19,5 @@ def require_user(request: Request) -> dict:
 def require_admin(request: Request) -> dict:
     user = require_user(request)
     if user["role"] != "admin":
-        raise HTTPException(403, "Only an admin can change the pricing rules.")
+        raise HTTPException(403, "Only an admin can make this change.")
     return user

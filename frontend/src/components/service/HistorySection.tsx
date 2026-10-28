@@ -35,7 +35,15 @@ export default function HistorySection({ serviceId }: { serviceId: string }) {
                 <td className="px-2 py-1">{formatDateTime(d.at)}</td>
                 <td className="px-2 py-1">{ACTIONS[d.action]}</td>
                 <td className="px-2 py-1">{formatINR(d.fare)}</td>
-                <td className="px-2 py-1">{[d.category, d.reason].filter(Boolean).join(': ') || '—'}</td>
+                <td className="px-2 py-1">
+                  {[d.category, d.reason].filter(Boolean).join(': ') || '—'}
+                  {d.rules_version != null && (
+                    <div className="text-xs text-slate-500">
+                      Recorded with pricing rules v{d.rules_version}
+                      {d.model_version ? `, ${d.model_version}` : ''}
+                    </div>
+                  )}
+                </td>
                 <td className="px-2 py-1">{formatINR(d.engine_fare)}</td>
                 <td className="px-2 py-1">{formatINR(d.our_fare)}</td>
                 <td className="px-2 py-1">

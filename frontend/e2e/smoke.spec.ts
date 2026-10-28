@@ -6,6 +6,9 @@ test('open an upcoming service, see the model fare and the allowed fare options'
   await expect(page.getByRole('tab', { name: 'Next 30 days', selected: true })).toBeVisible();
 
   await page.getByRole('row').filter({ hasText: 'Delhi → Rishikesh' }).first().click();
+  const panel = page.getByRole('dialog', { name: 'Delhi → Rishikesh' });
+  await expect(panel.getByText('Gap to checkpoint')).toBeVisible();
+  await panel.getByRole('link', { name: 'Open full review' }).click();
   await expect(page.getByRole('heading', { name: 'Our suggestion' })).toBeVisible();
   await expect(page.getByText('Predicted fare')).toBeVisible();
   await expect(page.getByText('Suggested fare, inside your pricing rules')).toBeVisible();

@@ -85,6 +85,8 @@ def to_service(r, rank: int | None) -> dict:
         flags["low_confidence"] = True
     if r.margin_status == "cost missing":
         flags["cost_missing"] = True
+    if r.seats_sold >= r.total_seats:
+        flags["sold_out"] = True
     has_cp = not pd.isna(r.expected_mid)
     return dict(
         service_id=r.service_id, route_label=str(r.corridor).replace(" - ", " → "), corridor_id=r.route_id,
@@ -123,13 +125,16 @@ def desk_summary(engine, window: str, corridor_id: str, now: datetime | None = N
                 in_loss=int((live["profit"] < 0).sum()), suggestions_waiting=len(waiting))
 
 
-def warnings(engine, now: datetime | None = None) -> list[dict]:
-    """Services still to depart that are behind their checkpoint and have no decision yet."""
+def warnings(engine, now: datetime | None = None, route_ids: set[str] | None = None) -> list[dict]:
+    """Services still to depart that are behind their checkpoint and have no decision yet.
+    `route_ids` limits it to those corridors (None = all). raised_at is the seat snapshot time: the data has no live feed."""
     now = now or now_ist()
     df = desk_frame(engine)
     done = decided_service_ids(engine)
     w = df[(df["status"] == "behind") & ~df["flag_cancelled"] & (df["departure_at"] >= now) & ~df["service_id"].isin(done)]
-    return [dict(id=f"w-{r.service_id}", service_id=r.service_id,
+    if route_ids is not None:
+        w = w[w["route_id"].isin(route_ids)]
+    return [dict(id=f"w-{r.service_id}", service_id=r.service_id, corridor_id=r.route_id,
                  route_label=f"{str(r.corridor).replace(' - ', ' → ')} · {r.departure_at.strftime('%H:%M')}",
                  seat_gap=round(float(r.seats_sold - r.expected_mid), 1),
                  checkpoint=dict(low=float(r.expected_low), mid=float(r.expected_mid), high=float(r.expected_high)),

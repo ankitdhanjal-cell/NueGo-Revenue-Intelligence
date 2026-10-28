@@ -265,3 +265,11 @@ def test_at_fare_gives_ordered_ranges_and_no_margin_without_cost():
     assert got["revenue"] == dict(low=5000.0, mid=6000.0, high=7500.0)
     assert got["margin"] == dict(low=1000.0, mid=2000.0, high=3500.0)
     assert suggestion.at_fare(dict(low=1.0, mid=2.0, high=3.0), 500.0, None)["margin"] is None
+
+
+def test_rating_and_nearest_rivals_are_returned_even_when_blocked():
+    near = [dict(label="Rival A", minutes_from_ours=-10, fare=480.0), dict(label="Rival B", minutes_from_ours=15, fare=560.0)]
+    for svc in (_svc(), _svc(flag_cancelled=True)):
+        s = _run(svc=svc, rivals=near)
+        assert s["rating"] == dict(avg=4.0, count=500)
+        assert s["rivals_either_side"]["before"]["fare"] == 480.0 and s["rivals_either_side"]["after"]["fare"] == 560.0

@@ -2,7 +2,7 @@ import pandas as pd
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.pnl import add_expected_margin, compute_pnl, totals
+from app.pnl import add_expected_margin, compute_pnl, totals, with_coach_type
 
 
 def _svc(**kw):
@@ -60,6 +60,14 @@ def test_totals_sum_matches():
     assert totals(c, "corridor").loc[0, "services"] == 1  # cancelled left out
 
 
+def test_totals_by_coach_type_keep_unknown_so_they_add_up():
+    p = compute_pnl(pd.concat([_svc(), _svc(service_id="S2"), _svc(service_id="S3")]))
+    coach = pd.DataFrame(dict(service_id=["S1", "S2"], ac=[1.0, 1.0], sleeper=[1.0, 0.0]))
+    t = totals(with_coach_type(p, coach), "coach_type").set_index("coach_type")
+    assert t["services"].to_dict() == {"AC Seater": 1, "AC Sleeper": 1, "Unknown": 1}
+    assert t["profit"].sum() == p["profit"].sum()
+
+
 def test_api():
     c = TestClient(app)
     assert c.get("/pnl/services/NOPE").status_code == 404
@@ -102,7 +110,8 @@ def test_real_totals_equal_sum_of_services():
     from app.db import engine
     pnl = pd.read_sql_table("pnl_services", engine)
     live = pnl[~pnl["flag_cancelled"]]
-    for g in ("corridor", "date"):
+    pnl = with_coach_type(pnl, pd.read_sql_table("seat_forecasts", engine, columns=["service_id", "ac", "sleeper"]))
+    for g in ("corridor", "date", "coach_type"):
         t = totals(pnl, g)
         assert t["services"].sum() == len(live)
         assert abs(t["revenue"].sum() - live["revenue"].sum()) < 0.01
@@ -121,3 +130,31 @@ def test_real_crew_split_adds_back_to_monthly_source_within_half_percent():
     for (route, year), g in s.groupby(["route_id", "year"]):
         monthly = g["crew_cost"].iloc[0]  # one crew total per route and year in the data
         assert abs(g["split"].mean() * N - monthly) / monthly < 0.005, (route, year)
+
+
+def test_twenty_real_services_match_a_hand_calculation_from_the_raw_file():
+    """FR-PNL-001/002: recompute revenue and cost straight from the source CSV, without app code, to the rupee."""
+    import csv
+    import random
+    from statistics import median
+
+    from app.config import TRIPS_PER_ROUTE_MONTH
+    from app.db import engine
+
+    def money(v):
+        return float(v.replace("₹", "").replace(",", "")) if v.strip() else None
+
+    with open("data/raw/route_details.csv", encoding="utf-8-sig") as f:
+        rows = list(csv.DictReader(f))
+    route_hours = {r: median(float(x["Duration (hours)"]) for x in rows if x["w"] == r and x["Duration (hours)"])
+                   for r in {x["w"] for x in rows}}
+    pnl = pd.read_sql_table("pnl_services", engine).set_index("service_id")
+    for r in random.Random(42).sample(rows, 20):
+        sold = int(r["Total Seats"]) - int(r["Available Seats"])
+        refund = money(r["Refund Amount (INR)"]) if r["Booking Status"] == "Cancelled" else 0
+        revenue = max(sold * money(r["Fare on Sale (INR)"]) - refund, 0)
+        hours = float(r["Duration (hours)"]) if r["Duration (hours)"] else route_hours[r["w"]]
+        crew = money(r["Crew Cost (INR)"]) * hours / (TRIPS_PER_ROUTE_MONTH * route_hours[r["w"]])
+        cost = float(r["Distance (km)"]) * money(r["Coach Cost per km (INR)"]) + crew + money(r["Tolls (INR)"])
+        got = pnl.loc[r["Booking ID"]]
+        assert abs(got["revenue"] - revenue) < 1 and abs(got["cost_to_run"] - cost) < 1, r["Booking ID"]

@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 
 from app.config import FLOOR_SWITCH_HOURS, MIN_HISTORY_DAYS, TRIPS_PER_ROUTE_MONTH
+from app.desk_labels import coach_label
 
 
 def split_crew(s: pd.DataFrame, trips_per_month: int) -> pd.DataFrame:
@@ -102,9 +103,16 @@ def add_expected_margin(pnl: pd.DataFrame, forecasts: pd.DataFrame) -> pd.DataFr
     return out
 
 
-# Dimensions Module A can group by. coach_type and channel are not in the data.
-GROUPABLE = {"corridor": "corridor", "date": "departure_date"}
-UNAVAILABLE = {"coach_type", "channel"}
+# Dimensions Module A can group by. Channel is not in the data.
+GROUPABLE = {"corridor": "corridor", "date": "departure_date", "coach_type": "coach_type"}
+UNAVAILABLE = {"channel"}
+
+
+def with_coach_type(pnl: pd.DataFrame, coach: pd.DataFrame) -> pd.DataFrame:
+    """Adds coach_type from `coach` (service_id, ac, sleeper). 'Unknown' when it is not in the data, so totals still add up."""
+    out = pnl.merge(coach, on="service_id", how="left")
+    out["coach_type"] = [coach_label(a, s) or "Unknown" for a, s in zip(out["ac"], out["sleeper"])]
+    return out
 
 
 def totals(pnl: pd.DataFrame, group_by: str) -> pd.DataFrame:

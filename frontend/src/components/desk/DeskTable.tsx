@@ -1,4 +1,4 @@
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import type { DeskService } from '../../api/types';
 import { formatDate, formatTime } from '../../lib/format';
 import CheckpointBar from '../CheckpointBar';
@@ -19,12 +19,11 @@ interface Props {
   rows: DeskService[];
   showMoney: boolean;
   showRank?: boolean;
+  onSelect: (s: DeskService) => void;
 }
 
-/** One row per service. A click anywhere on the row opens the review page. */
-export default function DeskTable({ rows, showMoney, showRank = true }: Props) {
-  const navigate = useNavigate();
-  const open = (s: DeskService) => navigate(`/services/${s.service_id}`, { state: { service: s } });
+/** One row per service. A click on the row opens the quick-look panel; Review opens the full page. */
+export default function DeskTable({ rows, showMoney, showRank = true, onSelect }: Props) {
   const heads = [
     '#',
     'Service',
@@ -53,8 +52,8 @@ export default function DeskTable({ rows, showMoney, showRank = true }: Props) {
             <tr
               key={s.service_id}
               tabIndex={0}
-              onClick={() => open(s)}
-              onKeyDown={(e) => e.key === 'Enter' && open(s)}
+              onClick={() => onSelect(s)}
+              onKeyDown={(e) => e.key === 'Enter' && onSelect(s)}
               className="cursor-pointer border-b border-slate-200 last:border-0 hover:bg-paper focus:bg-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-600"
             >
               <td className="w-10 px-3 py-3.5 text-slate-500">

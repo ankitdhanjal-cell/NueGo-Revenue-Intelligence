@@ -10,6 +10,7 @@ import PnlSection from '../components/service/PnlSection';
 import PriceResponseSection from '../components/service/PriceResponseSection';
 import RivalsSection from '../components/service/RivalsSection';
 import StatStrip from '../components/service/StatStrip';
+import TrendSection from '../components/service/TrendSection';
 import WhatIfSection from '../components/service/WhatIfSection';
 import { formatDateTime } from '../lib/format';
 import { dtgBandOf, slotOf } from '../lib/segment';
@@ -92,7 +93,12 @@ export default function ServicePage() {
             </>
           )}
           {tab === 'rivals' && <RivalsSection serviceId={id} />}
-          {tab === 'money' && <PnlSection serviceId={id} />}
+          {tab === 'money' && (
+            <>
+              <PnlSection serviceId={id} />
+              <TrendSection serviceId={id} />
+            </>
+          )}
           {tab === 'history' && <HistorySection serviceId={id} />}
         </div>
       </div>

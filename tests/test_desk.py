@@ -119,3 +119,26 @@ def test_every_desk_response_is_valid_json_including_services_with_no_forecast()
         json.loads(r.text, parse_constant=lambda x: (_ for _ in ()).throw(ValueError(x)))  # no NaN allowed
     items = c.get("/desk/services?window=all&page=1").json()["items"]
     assert all(i["status"] in (None, "behind", "ahead", "on_pace") for i in items)
+
+
+def test_warnings_can_be_limited_to_some_corridors():
+    allw = desk.warnings(engine)
+    assert all(w["corridor_id"] for w in allw)
+    assert desk.warnings(engine, route_ids=set()) == []
+    if allw:
+        one = allw[0]["corridor_id"]
+        only = desk.warnings(engine, route_ids={one})
+        assert only and {w["corridor_id"] for w in only} == {one} and len(only) <= len(allw)
+
+
+def test_a_full_coach_is_flagged_sold_out():
+    row = dict(service_id="S1", route_id="R1", corridor="Delhi - Agra", departure_at=pd.Timestamp("2026-11-01 08:00"),
+               booking_time=pd.Timestamp("2026-10-30 08:00"), hours_to_departure=48.0, ac=1.0, sleeper=0.0,
+               seats_sold=40.0, total_seats=40.0, expected_low=30.0, expected_mid=35.0, expected_high=40.0,
+               insufficient_data=False, checkpoint_status="ok", margin_status="ok", fare_on_sale=500.0,
+               revenue=20000.0, cost_to_run=15000.0, profit=5000.0, status="on_pace", flag_cancelled=False,
+               score=0.1, behind_part=0.0, margin_part=0.1)
+    full = next(pd.DataFrame([row]).itertuples())
+    part = next(pd.DataFrame([{**row, "seats_sold": 39.0}]).itertuples())
+    assert desk.to_service(full, 1)["flags"] == {"sold_out": True}
+    assert "sold_out" not in desk.to_service(part, 1)["flags"]

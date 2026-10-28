@@ -1,5 +1,7 @@
 import { NavLink, Outlet } from 'react-router-dom';
-import { useWarnings } from '../api/hooks';
+import { usePipelineStatus, useWarnings } from '../api/hooks';
+import { useDefaultAlertOwner } from '../lib/alerts';
+import { formatDateTime } from '../lib/format';
 import { useUser } from '../lib/user';
 
 const NAV = [
@@ -12,7 +14,10 @@ const NAV = [
 
 export default function Layout() {
   const { user, users, switchUser } = useUser();
-  const alerts = useWarnings().data?.items.length ?? 0;
+  // In-app only: the badge counts the signed-in person's alerts if they own a route, otherwise everyone's.
+  const mine = useDefaultAlertOwner();
+  const alerts = useWarnings(mine || undefined).data?.items.length ?? 0;
+  const run = usePipelineStatus().data?.last_run;
   return (
     <div className="flex min-h-screen">
       <aside className="sticky top-0 flex h-screen w-60 shrink-0 flex-col border-r border-slate-300 bg-white px-5 py-6">
@@ -33,7 +38,7 @@ export default function Layout() {
               {n.label}
               {n.to === '/warnings' && alerts > 0 && (
                 <span
-                  aria-label={`${alerts} alerts for you`}
+                  aria-label={mine ? `${alerts} alerts for you` : `${alerts} alerts`}
                   className="rounded-full bg-bad px-1.5 text-xs font-semibold text-white"
                 >
                   {alerts}
@@ -42,6 +47,11 @@ export default function Layout() {
             </NavLink>
           ))}
         </nav>
+        <p className={`mb-4 text-xs ${run?.status === 'failed' ? 'text-bad' : 'text-slate-500'}`}>
+          {!run
+            ? 'Data refresh not recorded yet'
+            : `${run.status === 'failed' ? 'Last data refresh failed' : 'Data refreshed'} ${formatDateTime(run.finished_at)}`}
+        </p>
         <div>
           <label htmlFor="user" className="label text-xs text-slate-500">
             Signed in as

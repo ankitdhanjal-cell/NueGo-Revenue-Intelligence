@@ -2,10 +2,23 @@ import { useSuggestion } from '../api/hooks';
 import BlockedNotice from './BlockedNotice';
 import DecisionButtons from './DecisionButtons';
 import FlagBadges from './FlagBadges';
+import { formatRating } from '../lib/format';
+import type { Rival } from '../api/types';
 import Money from './Money';
 import RangeValue from './RangeValue';
 import ReasonList from './ReasonList';
 import SectionState from './SectionState';
+
+function RivalLine({ rival }: { rival: Rival | null }) {
+  if (!rival) return null;
+  const m = rival.minutes_from_ours;
+  return (
+    <div>
+      {rival.label} <Money value={rival.fare} />,{' '}
+      {m === 0 ? 'same time' : `${Math.abs(m)} min ${m < 0 ? 'earlier' : 'later'}`}
+    </div>
+  );
+}
 
 /** The main thing on the review page: the model's fare, the suggested fare inside the rules, why, and the buttons. */
 export default function SuggestionCard({ serviceId }: { serviceId: string }) {
@@ -46,6 +59,26 @@ export default function SuggestionCard({ serviceId }: { serviceId: string }) {
                 </div>
               </div>
             </div>
+
+            <dl className="space-y-1 text-sm">
+              <div className="flex gap-2">
+                <dt className="w-44 text-slate-600">Rating</dt>
+                <dd>{formatRating(s.rating)}</dd>
+              </div>
+              <div className="flex gap-2">
+                <dt className="w-44 text-slate-600">Rivals either side</dt>
+                <dd>
+                  {s.rivals_either_side.before || s.rivals_either_side.after ? (
+                    <>
+                      <RivalLine rival={s.rivals_either_side.before} />
+                      <RivalLine rival={s.rivals_either_side.after} />
+                    </>
+                  ) : (
+                    'No rival within 30 minutes'
+                  )}
+                </dd>
+              </div>
+            </dl>
 
             {s.suggested_fare == null ? (
               <BlockedNotice suggestion={s} />

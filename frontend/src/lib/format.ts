@@ -1,4 +1,4 @@
-import type { Range } from '../api/types';
+import type { Range, Rating } from '../api/types';
 
 export type RangeFormat = 'inr' | 'seats' | 'pct' | 'ratio';
 
@@ -26,6 +26,14 @@ export function formatSeats(value: number | null | undefined): string {
 export function formatPct(value: number | null | undefined): string {
   if (value == null || Number.isNaN(value)) return '—';
   return `${(Math.round(value * 10) / 10).toString()}%`;
+}
+
+/** "4.2 (1,234 ratings)", or an em dash when there is no rating. */
+export function formatRating(r: Rating): string {
+  if (r.avg == null) return '—';
+  return r.count == null
+    ? r.avg.toFixed(1)
+    : `${r.avg.toFixed(1)} (${r.count.toLocaleString('en-IN')} ratings)`;
 }
 
 function formatRatio(value: number | null | undefined): string {

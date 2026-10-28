@@ -12,7 +12,7 @@ def _seg(n, slope=None, fares=None, seed=0):
     rng = np.random.default_rng(seed)
     fare = np.asarray(fares) if fares is not None else rng.integers(300, 700, n).astype(float)
     seats = 30 * (fare / 500) ** (slope if slope is not None else 0) * np.exp(rng.normal(0, 0.05, n))
-    return pd.DataFrame(dict(fare_on_sale=fare, seats_sold=seats, flag_cancelled=False))
+    return pd.DataFrame(dict(fare_on_sale=fare, seats_sold=seats, total_seats=100, flag_cancelled=False))
 
 
 def test_few_services_gives_no_slope():
@@ -46,6 +46,13 @@ def test_cancelled_and_zero_seat_rows_are_left_out():
     s.loc[:9, "flag_cancelled"] = True
     s.loc[10:14, "seats_sold"] = 0
     assert elasticity.elasticity(s)["n_services"] == 45
+
+
+def test_sold_out_services_are_left_out_and_counted():
+    s = _seg(60, slope=-1)
+    s.loc[:4, "seats_sold"] = 100
+    r = elasticity.elasticity(s)
+    assert r["n_services"] == 55 and r["sold_out_left_out"] == 5
 
 
 def test_segment_columns():

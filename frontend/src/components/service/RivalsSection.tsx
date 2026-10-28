@@ -1,5 +1,5 @@
 import { useRivals } from '../../api/hooks';
-import { formatTime } from '../../lib/format';
+import { formatRating, formatTime } from '../../lib/format';
 import FlagBadges from '../FlagBadges';
 import Money from '../Money';
 import SectionState from '../SectionState';
@@ -49,10 +49,7 @@ export default function RivalsSection({ serviceId }: { serviceId: string }) {
                 </tbody>
               </table>
             )}
-            <p className="text-slate-700">
-              Route rating: {r.rating.avg == null ? '—' : r.rating.avg.toFixed(1)}
-              {r.rating.count != null ? ` (${r.rating.count.toLocaleString('en-IN')} ratings)` : ''}
-            </p>
+            <p className="text-slate-700">Route rating: {formatRating(r.rating)}</p>
           </div>
         )}
       </SectionState>

@@ -70,6 +70,8 @@ export interface RawSuggestion {
   change_vs_current?: { extra_seats: Range; margin_change: Range } | null;
   reasons: { code: string; text: string }[];
   flags: RawFlags;
+  rating: Suggestion['rating'];
+  rivals_either_side: Suggestion['rivals_either_side'];
 }
 
 export function adaptSuggestion(raw: RawSuggestion): Suggestion {
@@ -91,6 +93,8 @@ export function adaptSuggestion(raw: RawSuggestion): Suggestion {
     reasons: raw.reasons,
     flags: mapFlags(raw.flags),
     rules_version: raw.rules_version,
+    rating: raw.rating,
+    rivals_either_side: raw.rivals_either_side,
   };
 }
 

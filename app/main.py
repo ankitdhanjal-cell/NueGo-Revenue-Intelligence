@@ -4,7 +4,7 @@ from fastapi.responses import JSONResponse
 
 from app.auth import require_admin, require_user
 from app.db import engine
-from app.pnl import GROUPABLE, UNAVAILABLE, totals
+from app.pnl import GROUPABLE, UNAVAILABLE, totals, with_coach_type
 
 app = FastAPI(title="NueGo Revenue Intelligence")
 
@@ -30,6 +30,8 @@ def pnl_totals(group_by: str = Query("corridor")):
     if group_by not in GROUPABLE:
         raise HTTPException(422, f"group_by must be one of {sorted(GROUPABLE)}")
     pnl = pd.read_sql_table("pnl_services", engine)
+    if group_by == "coach_type":
+        pnl = with_coach_type(pnl, pd.read_sql_table("seat_forecasts", engine, columns=["service_id", "ac", "sleeper"]))
     return {"group_by": group_by, "rows": _json(totals(pnl, group_by))}
 
 
@@ -45,7 +47,7 @@ from datetime import datetime  # noqa: E402
 
 from pydantic import BaseModel  # noqa: E402
 
-from app import fare_model, fare_notebook  # noqa: E402
+from app import fare_notebook  # noqa: E402
 
 REFERENCE_NOTE = "Reference only. This is not a suggested fare and is not written to any system."
 
@@ -247,6 +249,8 @@ def suggestion(service_id: str, minutes_since_last_change: float | None = Query(
 
 # ---------- Module B: desk, alerts, what-if, decisions, users ----------
 from app import decisions as decisions_calc  # noqa: E402
+from app import owners as owners_calc  # noqa: E402
+from app import pipeline  # noqa: E402
 from app import desk as desk_calc  # noqa: E402
 from app import whatif as whatif_calc  # noqa: E402
 from app.config import USERS  # noqa: E402
@@ -256,6 +260,12 @@ def _window(window: str) -> str:
     if window not in desk_calc.WINDOWS:
         raise HTTPException(422, f"window must be one of {list(desk_calc.WINDOWS)}")
     return window
+
+
+@app.get("/pipeline/status")
+def pipeline_status():
+    """When the computed tables were last refreshed (scripts/refresh.py). None until the first run."""
+    return {"last_run": pipeline.last_run(engine)}
 
 
 @app.get("/users")
@@ -280,8 +290,36 @@ def desk_services(window: str = "next30", corridor_id: str = "", page: int = Que
 
 
 @app.get("/warnings")
-def warnings():
-    return {"items": desk_calc.warnings(engine)}
+def warnings(owner_id: str | None = None):
+    """Behind-checkpoint services. With owner_id, only the corridors that person owns."""
+    if owner_id is not None and owner_id not in {u["id"] for u in USERS}:
+        raise HTTPException(404, f"user {owner_id} not found")
+    owners = owners_calc.owner_map(engine)
+    mine = None if owner_id is None else {route for route, owner in owners.items() if owner == owner_id}
+    items = desk_calc.warnings(engine, route_ids=mine)
+    return {"items": [{**w, "owner_id": owners.get(w["corridor_id"])} for w in items]}
+
+
+@app.get("/owners")
+def list_owners(user: dict = Depends(require_user)):
+    """Who owns each corridor (empty until an admin assigns one)."""
+    return {"items": owners_calc.view(engine, desk_calc.routes(engine))}
+
+
+class OwnerIn(BaseModel):
+    user_id: str | None = None
+
+
+@app.put("/owners/{route_id}")
+def set_owner(route_id: str, body: OwnerIn, admin: dict = Depends(require_admin)):
+    """Assign (or clear, with user_id null) the owner of a corridor. Admin only."""
+    try:
+        owners_calc.assign(engine, route_id, body.user_id, admin["id"], [r["id"] for r in desk_calc.routes(engine)])
+    except owners_calc.UnknownRoute:
+        raise HTTPException(404, f"corridor {route_id} not found")
+    except owners_calc.UnknownUser:
+        raise HTTPException(422, f"user {body.user_id} not found")
+    return next(o for o in owners_calc.view(engine, desk_calc.routes(engine)) if o["route_id"] == route_id)
 
 
 @app.get("/services/{service_id}/whatif")

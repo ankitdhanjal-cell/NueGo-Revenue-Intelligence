@@ -38,7 +38,7 @@ MIN_ELASTICITY_FARES = int(os.getenv("MIN_ELASTICITY_FARES", "5"))
 # services before its p10/p50/p90 is shown. Fewer = "no history". An assumption, not data.
 MIN_BAND_SERVICES = int(os.getenv("MIN_BAND_SERVICES", "4"))
 
-# Auth stub: the UI sends X-User-Id. Only an admin may change the pricing rules.
+# Auth stub: the UI sends X-User-Id. Only an admin may change the pricing rules and who owns each corridor.
 # Replace with the real identity provider; these are placeholders, not people.
 USERS = [
     {"id": "analyst-1", "name": "Pricing analyst 1", "role": "analyst"},

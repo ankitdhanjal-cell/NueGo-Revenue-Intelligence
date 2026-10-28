@@ -6,6 +6,7 @@ export const FLAG_LABELS: Record<FlagName, string> = {
   low_confidence: 'Low confidence',
   rival_missing: 'No rival data',
   floor_missing: 'Floor fallback',
+  sold_out: 'Sold out',
 };
 
 export const RULE_LABELS: Record<string, string> = {

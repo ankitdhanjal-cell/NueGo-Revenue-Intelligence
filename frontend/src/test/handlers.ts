@@ -28,7 +28,7 @@ const base: DeskService = {
   cancelled: false,
 };
 
-export const SERVICES: DeskService[] = [
+const SERVICES: DeskService[] = [
   base,
   { ...base, service_id: 'S-OK', route_label: 'Delhi → Jaipur', status: 'on_pace', rank: 2, seats_sold: 17 },
   {
@@ -51,9 +51,10 @@ const CANCELLED: DeskService = {
   status: null,
 };
 
-export const state = { decisions: [] as Decision[] };
+export const state = { decisions: [] as Decision[], owners: {} as Record<string, string> };
 export const reset = () => {
   state.decisions = [];
+  state.owners = {};
 };
 
 const suggestion = (id: string) =>
@@ -70,6 +71,8 @@ const suggestion = (id: string) =>
         blocked_reason: 'COST_MISSING',
         reasons: [],
         flags: { cost_missing: true },
+        rating: { avg: null, count: null },
+        rivals_either_side: { before: null, after: null },
       }
     : {
         service_id: id,
@@ -91,7 +94,27 @@ const suggestion = (id: string) =>
         change_vs_current: null,
         reasons: [{ code: 'BOOKING_PACE', text: '10 seats behind checkpoint' }],
         flags: {},
+        rating: { avg: 4.2, count: 900 },
+        rivals_either_side: {
+          before: {
+            label: 'Rival A',
+            departure_at: '2023-01-25T07:50:00',
+            minutes_from_ours: -20,
+            fare: 360,
+            gap_to_ours: 25,
+          },
+          after: null,
+        },
       };
+
+const owner = (route_id: string, owner_id: string | null) => ({
+  route_id,
+  route_label: 'Delhi → Shimla',
+  owner_id,
+  owner_name: owner_id ? (owner_id === 'admin' ? 'Admin' : 'Pricing analyst 1') : null,
+  assigned_by: owner_id ? 'admin' : null,
+  assigned_at: owner_id ? '2026-10-28T10:00:00' : null,
+});
 
 export const handlers = [
   http.get(`${B}/users`, () =>
@@ -101,6 +124,9 @@ export const handlers = [
         { id: 'admin', name: 'Admin', role: 'admin' },
       ],
     }),
+  ),
+  http.get(`${B}/pipeline/status`, () =>
+    HttpResponse.json({ last_run: { finished_at: '2026-10-28T06:00:00', status: 'ok', error: null } }),
   ),
   http.get(`${B}/routes`, () =>
     HttpResponse.json({ items: [{ id: 'R003', label: 'Delhi → Shimla', capacity: 40 }] }),
@@ -118,21 +144,35 @@ export const handlers = [
       total: empty ? 0 : SERVICES.length,
     });
   }),
-  http.get(`${B}/warnings`, () =>
-    HttpResponse.json({
-      items: [
-        {
-          id: 'w-1',
-          service_id: 'S-SLOW',
-          route_label: 'Delhi → Shimla · 08:10',
-          seat_gap: -12.2,
-          checkpoint: { low: 8.6, mid: 18.2, high: 27.8 },
-          raised_at: '2023-01-23T17:45:00',
-          departure_at: '2023-01-25T08:10:00',
-        },
-      ],
-    }),
-  ),
+  http.get(`${B}/owners`, () => HttpResponse.json({ items: [owner('R003', state.owners.R003 ?? null)] })),
+  http.put(`${B}/owners/:id`, async ({ params, request }) => {
+    const body = (await request.json()) as { user_id: string | null };
+    const id = String(params.id);
+    if (body.user_id) state.owners[id] = body.user_id;
+    else delete state.owners[id];
+    return HttpResponse.json(owner(id, body.user_id));
+  }),
+  http.get(`${B}/warnings`, ({ request }) => {
+    const wanted = new URL(request.url).searchParams.get('owner_id');
+    const mine = !wanted || state.owners.R003 === wanted;
+    return HttpResponse.json({
+      items: !mine
+        ? []
+        : [
+            {
+              id: 'w-1',
+              service_id: 'S-SLOW',
+              corridor_id: 'R003',
+              owner_id: state.owners.R003 ?? null,
+              route_label: 'Delhi → Shimla · 08:10',
+              seat_gap: -12.2,
+              checkpoint: { low: 8.6, mid: 18.2, high: 27.8 },
+              raised_at: '2023-01-23T17:45:00',
+              departure_at: '2023-01-25T08:10:00',
+            },
+          ],
+    });
+  }),
   http.get(`${B}/services/:id/suggestion`, ({ params }) => HttpResponse.json(suggestion(String(params.id)))),
   http.get(`${B}/services/:id/whatif`, () =>
     HttpResponse.json({
@@ -158,6 +198,12 @@ export const handlers = [
           is_suggested: true,
         },
       ],
+    }),
+  ),
+  http.get(`${B}/pnl/services/:id/trend`, () =>
+    HttpResponse.json({
+      weekday: 'Wednesday',
+      points: [{ departure_at: '2022-12-28T08:10:00', load_pct: 62.5, revenue: 9625, margin: -1200 }],
     }),
   ),
   http.get(`${B}/pnl/services/:id`, ({ params }) =>
@@ -216,6 +262,10 @@ export const handlers = [
       engine_fare: 385,
       our_fare: 400,
       outcome: null,
+      rules_version: 1,
+      model_version: 'linear regression fare model',
+      predicted_fare: 400,
+      floor_value: 350,
     };
     state.decisions.unshift(d);
     return HttpResponse.json(d, { status: 201 });

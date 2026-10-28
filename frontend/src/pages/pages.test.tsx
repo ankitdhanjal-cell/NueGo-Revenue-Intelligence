@@ -1,10 +1,13 @@
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Route, Routes } from 'react-router-dom';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import DecisionButtons from '../components/DecisionButtons';
 import { RECORDED_MESSAGE } from '../lib/labels';
 import type { Suggestion } from '../api/types';
+import Layout from '../components/Layout';
+import OwnersEditor from '../components/settings/OwnersEditor';
+import { state } from '../test/handlers';
 import { renderWithProviders } from '../test/utils';
 import DeskPage from './DeskPage';
 import ServicePage from './ServicePage';
@@ -18,6 +21,19 @@ describe('Desk', () => {
     expect(within(rows[1] as HTMLElement).getByText('Delhi → Shimla')).toBeInTheDocument();
     expect(within(rows[1] as HTMLElement).getByText('25 Jan 2023')).toBeInTheDocument();
     expect(await screen.findByText('services in this view')).toBeInTheDocument();
+  });
+
+  it('opens a quick-look panel from a row, with a link to the full review', async () => {
+    renderWithProviders(<DeskPage />);
+    const rows = await screen.findAllByRole('row');
+    await userEvent.click(rows[1] as HTMLElement);
+    const panel = await screen.findByRole('dialog', { name: 'Delhi → Shimla' });
+    expect(within(panel).getByText('12.2 seats behind')).toBeInTheDocument();
+    expect(await within(panel).findByText('₹400')).toBeInTheDocument();
+    expect(within(panel).getByRole('link', { name: 'Open full review' })).toHaveAttribute(
+      'href',
+      '/services/S-SLOW',
+    );
   });
 
   it('puts a cost-missing service in its own section with no rank', async () => {
@@ -51,14 +67,67 @@ describe('Alerts', () => {
       '/services/S-SLOW',
     );
   });
+
+  it('shows who owns the route, and everyone’s alerts when the signed-in person owns none', async () => {
+    state.owners.R003 = 'admin';
+    renderWithProviders(<WarningsPage />);
+    const row = (await screen.findByRole('link', { name: 'Delhi → Shimla · 08:10' })).closest(
+      'tr',
+    ) as HTMLElement;
+    expect(within(row).getByText('Admin')).toBeInTheDocument();
+    expect(screen.getByLabelText(/show alerts for/i)).toHaveValue('');
+  });
+
+  it('starts on my own routes when I own one, and filters by person', async () => {
+    state.owners.R003 = 'analyst-1';
+    renderWithProviders(<WarningsPage />);
+    expect(await screen.findByRole('link', { name: 'Delhi → Shimla · 08:10' })).toBeInTheDocument();
+    expect(screen.getByLabelText(/show alerts for/i)).toHaveValue('analyst-1');
+    await userEvent.selectOptions(screen.getByLabelText(/show alerts for/i), 'admin');
+    expect(await screen.findByText(/nothing needs attention on this person/i)).toBeInTheDocument();
+  });
 });
 
-function renderReview(id: string) {
+describe('Sidebar', () => {
+  it('counts everyone’s alerts when I own no route', async () => {
+    renderWithProviders(<Layout />);
+    expect(await screen.findByLabelText('1 alerts')).toBeInTheDocument();
+    expect(await screen.findByText(/Data refreshed 28 Oct 2026/)).toBeInTheDocument();
+  });
+
+  it('says the alerts are mine when I own the route', async () => {
+    state.owners.R003 = 'analyst-1';
+    renderWithProviders(<Layout />);
+    expect(await screen.findByLabelText('1 alerts for you')).toBeInTheDocument();
+  });
+});
+
+describe('Route owners', () => {
+  afterEach(() => localStorage.removeItem('userId'));
+
+  it('is read-only for an analyst', async () => {
+    renderWithProviders(<OwnersEditor />);
+    expect(await screen.findByLabelText('Owner of Delhi → Shimla')).toBeDisabled();
+    expect(screen.getByText(/only an admin can change this/i)).toBeInTheDocument();
+  });
+
+  it('lets an admin assign an owner', async () => {
+    localStorage.setItem('userId', 'admin');
+    renderWithProviders(<OwnersEditor />);
+    const select = await screen.findByLabelText('Owner of Delhi → Shimla');
+    await waitFor(() => expect(select).toBeEnabled());
+    await userEvent.selectOptions(select, 'analyst-1');
+    expect(await screen.findByText('Delhi → Shimla now belongs to Pricing analyst 1.')).toBeInTheDocument();
+    expect(state.owners.R003).toBe('analyst-1');
+  });
+});
+
+function renderReview(id: string, query = '') {
   return renderWithProviders(
     <Routes>
       <Route path="/services/:id" element={<ServicePage />} />
     </Routes>,
-    `/services/${id}`,
+    `/services/${id}${query}`,
   );
 }
 
@@ -69,6 +138,17 @@ describe('Review page', () => {
     expect(screen.getByText('Suggested fare, inside your pricing rules')).toBeInTheDocument();
     expect(screen.getByText('Departs 25 Jan 2023, 08:10 AM', { exact: false })).toBeInTheDocument();
     expect(await screen.findByRole('button', { name: 'Approve' })).toBeInTheDocument();
+    expect(screen.getByText('4.2 (900 ratings)')).toBeInTheDocument();
+    expect(screen.getByText(/Rival A/)).toHaveTextContent('Rival A ₹360, 20 min earlier');
+  });
+
+  it('shows the same-weekday trend on the Money tab', async () => {
+    renderReview('S-OK', '?tab=money');
+    const table = (await screen.findByRole('heading', { name: 'Same weekday, last 8 weeks' })).closest(
+      'section',
+    );
+    expect(await within(table as HTMLElement).findByText('62.5%')).toBeInTheDocument();
+    expect(within(table as HTMLElement).getByText('28 Dec 2022')).toBeInTheDocument();
   });
 
   it('explains a null suggestion, still shows the prediction and shows no decision buttons', async () => {

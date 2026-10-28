@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useDeskServices, useRoutes } from '../api/hooks';
-import type { DeskFilters } from '../api/types';
+import type { DeskFilters, DeskService } from '../api/types';
 import SectionState from '../components/SectionState';
 import DeskTable from '../components/desk/DeskTable';
+import ServicePanel from '../components/desk/ServicePanel';
 import SummaryLine from '../components/desk/SummaryLine';
 
 const TABS: { id: DeskFilters['window']; label: string }[] = [
@@ -35,6 +36,7 @@ export default function DeskPage() {
   const routes = useRoutes().data?.items ?? [];
   const [showMoney, setShowMoney] = useState(false);
   const [showCancelled, setShowCancelled] = useState(false);
+  const [selected, setSelected] = useState<DeskService | null>(null);
 
   function update(next: Partial<Record<'window' | 'corridor' | 'page', string>>) {
     const p = new URLSearchParams(params);
@@ -124,7 +126,7 @@ export default function DeskPage() {
         )}
         {data && !empty && (
           <div className="space-y-6">
-            <DeskTable rows={ranked} showMoney={showMoney} />
+            <DeskTable onSelect={setSelected} rows={ranked} showMoney={showMoney} />
             <div className="flex items-center justify-between text-sm text-slate-600">
               <span>
                 {data.total} services · page {data.page} of {pages}
@@ -154,7 +156,7 @@ export default function DeskPage() {
                 <p className="mb-2 text-sm text-slate-600">
                   We do not know what these services cost to run, so we cannot say how much they matter.
                 </p>
-                <DeskTable rows={unranked} showMoney={showMoney} showRank={false} />
+                <DeskTable onSelect={setSelected} rows={unranked} showMoney={showMoney} showRank={false} />
               </section>
             )}
             {data.cancelled.length > 0 && (
@@ -171,7 +173,12 @@ export default function DeskPage() {
                     <p className="mb-2 text-sm text-slate-600">
                       Cancelled services are not ranked and are left out of the totals.
                     </p>
-                    <DeskTable rows={data.cancelled} showMoney={showMoney} showRank={false} />
+                    <DeskTable
+                      onSelect={setSelected}
+                      rows={data.cancelled}
+                      showMoney={showMoney}
+                      showRank={false}
+                    />
                   </div>
                 )}
               </section>
@@ -179,6 +186,7 @@ export default function DeskPage() {
           </div>
         )}
       </SectionState>
+      {selected && <ServicePanel service={selected} onClose={() => setSelected(null)} />}
     </div>
   );
 }
