@@ -167,3 +167,6 @@ real Asia/Kolkata dates), `GET /warnings`, `GET /services/{id}/whatif`, `GET /de
 `PUT /rules` is now admin-only (`X-User-Id`; 401 / 403 otherwise). Users are placeholders in `app/config.py`.
 
 **Dates.** The 245 services depart between 25 Jan 2023 and 26 Dec 2026, so most are in the past. Seat counts are booking-time snapshots.
+
+
+
