@@ -103,3 +103,19 @@ def test_the_desk_frame_is_cached_briefly_then_rebuilt(monkeypatch):
     key = id(engine)
     desk._cache[key] = (desk._cache[key][0] - desk.CACHE_SECONDS - 1, first)
     assert desk.desk_frame(engine) is not first and len(calls) == 2  # expired, rebuilt
+
+
+def test_every_desk_response_is_valid_json_including_services_with_no_forecast():
+    """Regression: status was NaN (not valid JSON) for services with no forecast -> HTTP 500."""
+    import json
+
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+    c = TestClient(app)
+    for window in ("today", "tomorrow", "next30", "earlier", "all"):
+        r = c.get(f"/desk/services?window={window}")
+        assert r.status_code == 200, window
+        json.loads(r.text, parse_constant=lambda x: (_ for _ in ()).throw(ValueError(x)))  # no NaN allowed
+    items = c.get("/desk/services?window=all&page=1").json()["items"]
+    assert all(i["status"] in (None, "behind", "ahead", "on_pace") for i in items)

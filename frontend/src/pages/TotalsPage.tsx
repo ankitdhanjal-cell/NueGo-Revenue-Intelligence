@@ -7,8 +7,6 @@ import { formatPct } from '../lib/format';
 const GROUPS = [
   { id: 'corridor', label: 'Corridor' },
   { id: 'date', label: 'Date' },
-  { id: 'coach_type', label: 'Coach type' },
-  { id: 'channel', label: 'Channel' },
 ];
 
 export default function TotalsPage() {

@@ -94,7 +94,7 @@ def to_service(r, rank: int | None) -> dict:
         checkpoint=dict(low=_num(r.expected_low), mid=_num(r.expected_mid), high=_num(r.expected_high)) if has_cp else None,
         gap_to_checkpoint=round(float(r.seats_sold - r.expected_mid), 1) if has_cp else None,
         fare_on_sale=_num(r.fare_on_sale), revenue=_num(r.revenue), cost_to_run=_num(r.cost_to_run),
-        margin_now=_num(r.profit), status=r.status, flags=flags, rank=rank,
+        margin_now=_num(r.profit), status=None if pd.isna(r.status) else str(r.status), flags=flags, rank=rank,
         score_parts=None if rank is None else dict(score=round(float(r.score), 4), behind_part=round(float(r.behind_part), 4),
                                                    margin_part=round(float(r.margin_part), 4)),
         cancelled=bool(r.flag_cancelled))
