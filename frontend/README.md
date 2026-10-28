@@ -21,7 +21,7 @@ because the backend has no `/api/v1` yet.
 
 ## The journey
 1. **Services to review** (`/`): a short list, worst first. Tabs are real dates: Today, Tomorrow, Next 30 days, Already departed. The data is a historical sample (Jan 2023 to Dec 2026), so Today and Tomorrow are often empty. Each row shows the departure date and when the seats were counted.
-2. **Review page** (`/services/:id`): four numbers, then **Our suggestion**: the fare predicted by the decision-tree model in `notebooks/decision_tree.ipynb` (as a range), the suggested fare inside the pricing rules, why, and Approve / Change fare / Reject / Something looks wrong. More detail is in five tabs.
+2. **Review page** (`/services/:id`): four numbers, then **Our suggestion**: the fare predicted by the linear regression fare model (as a range), the suggested fare inside the pricing rules, why, and Approve / Change fare / Reject / Something looks wrong. More detail is in five tabs.
 3. A decision is only recorded in the `decisions` table. Nothing is pushed to a pricing system.
 
 Other pages: Alerts, Money summary, Fare checker (notebook model), Pricing rules (editable by an admin only).

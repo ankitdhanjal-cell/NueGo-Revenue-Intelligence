@@ -1,6 +1,6 @@
 """Module B, step 5: suggested fare for one service (FR-PRC-006/007/009). Advice only.
 
-The fare comes from the decision-tree model in notebooks/decision_tree.ipynb (app.fare_notebook).
+The fare comes from the Linear Regression fare model (app.fare_notebook, trained by scripts/train_linear_fare_model.py).
 The suggestion is the allowed fare step CLOSEST to that predicted fare (ties go to the lower step)
 among the steps that pass every rule (rules.check_fare): cost floor, ceiling, state cap, largest
 change per step, shortest time between changes. So the model sets the price and the rules bound it.
@@ -168,7 +168,7 @@ def load_inputs(engine, service_id: str) -> dict | None:
            "rival_median": median,
            "coach_type": _coach(me["ac"], me["sleeper"]),
            "predicted_fare": None if predicted is None else {
-               **predicted, "label": "decision-tree prediction (notebooks/decision_tree.ipynb)"}}
+               **predicted, "label": "linear regression prediction (models/nuego_fare_model_linear.pkl)"}}
     seat_row = seat_model.prepare(s)
     seat_row = seat_row[seat_row["service_id"] == service_id]
     return dict(svc=svc, rules=rules.active_rules(engine), seat_fn=seat_fn_for(seat_model.load(), seat_row),

@@ -83,6 +83,7 @@ def predict(bundle: dict, feats: pd.DataFrame) -> pd.DataFrame:
     ok = feats[NEEDED].notna().all(axis=1)
     if ok.any():
         mid = bundle["model"].predict(model_frame(feats[ok]))
+        mid = np.maximum(mid, 0)  # a linear model can go below zero far outside its data
         out.loc[ok, "fare_mid"] = mid.round(0)
         out.loc[ok, "fare_low"] = np.maximum(mid - bundle["half_width"], 0).round(0)
         out.loc[ok, "fare_high"] = (mid + bundle["half_width"]).round(0)

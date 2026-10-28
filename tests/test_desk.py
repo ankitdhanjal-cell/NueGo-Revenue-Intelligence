@@ -79,10 +79,10 @@ def test_whatif_rows_name_the_rule_that_blocks_a_fare():
 
 
 @pytest.mark.parametrize("sid", ["BKG2023011", "BKG2026103"])
-def test_suggested_fare_is_the_notebook_prediction_snapped_to_an_allowed_step(sid):
+def test_suggested_fare_is_the_model_prediction_snapped_to_an_allowed_step(sid):
     s = TestClient(main.app).get(f"/services/{sid}/suggestion").json()
     p = s["predicted_fare"]
-    assert p and p["low"] <= p["mid"] <= p["high"] and "notebook" in p["label"]
+    assert p and p["low"] <= p["mid"] <= p["high"] and "linear regression" in p["label"]
     if s["suggested_fare"] is not None:
         rules = TestClient(main.app).get("/rules").json()
         near = min((f for f in rules["fare_steps"] if abs(f - s["fare_on_sale"]) <= s["fare_on_sale"] * rules["max_change_pct"] / 100

@@ -16,7 +16,7 @@ python -m scripts.compute_pnl
 uvicorn app.main:app --reload            # docs at http://localhost:8000/docs
 python -m pytest -q
 ```
-Models served: `models/nuego_fare_model.pkl`, `models/nuego_seats_sold_model.pkl` (team Decision Trees, used as-is).
+Models served: `models/nuego_fare_model_linear.pkl` (fare, Linear Regression, trained by `scripts/train_linear_fare_model.py`) and `models/nuego_seats_sold_model.pkl` (seats, team Decision Tree, used as-is). `models/nuego_fare_model.pkl` (the notebook Decision Tree) is kept but no longer served.
 Their AC/Sleeper inputs come from `data/processed/nuego_train_241_ac_sleeper.csv`; services without a
 match get no prediction. Settings in `.env`: `TRIPS_PER_ROUTE_MONTH` (default 30, an assumption),
 `RANK_W_BEHIND`, `RANK_W_MARGIN` (default 0.5 each), `FLOOR_SWITCH_HOURS` (default 24, an assumption: hours before departure when the marginal floor takes over).
@@ -152,14 +152,16 @@ Booking curve: seats sold vs days-to-go correlation is 0.09 and the band means a
 
 ## Update: price from the notebook model, real desk data, no mock data
 
-**Price.** The suggested fare now comes from the decision tree in `notebooks/decision_tree.ipynb` (`app/fare_notebook.py`,
-model `models/nuego_fare_model.pkl`). Competitor inputs follow the notebook: min / median / mean competitor fare for the route over
+**Price.** The predicted fare comes from a Linear Regression (`app/fare_notebook.py`, model `models/nuego_fare_model_linear.pkl`,
+re-train with `python -m scripts.train_linear_fare_model`). It uses the same inputs as `notebooks/decision_tree.ipynb` and replaced the tree
+because it was more accurate on every split tried (on the notebook's own split: MAE INR ~41 against 70.87 for the tree; 5-fold CV MAE INR ~45).
+Competitor inputs follow the notebook: min / median / mean competitor fare for the route over
 ALL competitor rows (the notebook's route-level fallback; its AC/Sleeper-level file `competitor_preprocessed3.csv` is not in the repo).
 This is not cut off by capture time, unlike `app/fare_model.py`, so for past services it sees later competitor fares.
 The suggestion is the allowed fare step closest to the predicted fare, inside every pricing rule. The old "reference fare, never the
-suggestion" rule no longer applies. `seats_weight` is kept in the rules but is not used while the fare comes from the tree.
+suggestion" rule no longer applies. `seats_weight` is kept in the rules but is not used while the fare comes from the model.
 `POST /fare/predict` uses the same method (its `as_of` is accepted but ignored). No coach type means no prediction.
-Notebook test split: MAE INR 70.87, R2 0.772; the range here is the model's in-sample error (optimistic).
+The low / high range is the 80th percentile of 5-fold cross-validated errors (about +-INR 68), so it comes from services the model had not seen.
 
 **New endpoints** (all on the real tables): `GET /desk/summary`, `GET /desk/services` (windows today / tomorrow / next30 / earlier / all,
 real Asia/Kolkata dates), `GET /warnings`, `GET /services/{id}/whatif`, `GET /decisions`, `POST /suggestions/{id}/decision`

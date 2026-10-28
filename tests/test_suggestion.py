@@ -11,7 +11,7 @@ def _svc(**changes):
                 flag_cancelled=False, checkpoint_status="ok", hours_to_departure=100.0, marginal_floor=float("nan"),
                 average_floor_low=380.0, average_floor_mid=450.0, average_floor_high=600.0, seats_sold=20.0,
                 holiday_score=0.0, holiday_event="No major holiday noted", avg_rating=4.0, num_ratings=500,
-                rival_median=None, predicted_fare=dict(low=450.0, mid=520.0, high=590.0, label="decision-tree prediction"))
+                rival_median=None, predicted_fare=dict(low=450.0, mid=520.0, high=590.0, label="linear regression prediction"))
     return {**base, **changes}
 
 

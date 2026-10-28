@@ -1,13 +1,16 @@
-"""Fare prediction exactly as notebooks/decision_tree.ipynb does it (Decision Tree, depth 5, min leaf 3).
+"""Fare prediction: Linear Regression on the same inputs as notebooks/decision_tree.ipynb.
 
-The model is models/nuego_fare_model.pkl, trained in that notebook. Its competitor inputs follow the
-notebook: min / median / average competitor fare for the route, over ALL competitor rows. The notebook
-first groups by route + AC + Sleeper and falls back to the route alone; the competitor file with AC and
-Sleeper columns (competitor_preprocessed3.csv) is not in the repo and coach_type_raw is never
-interpreted, so only the route-level step is used here. This is NOT restricted to rows captured before a
-prediction time (unlike app.fare_model), so for past services it sees later competitor fares.
-The low / high range is the 80th percentile of the pickle's own errors on the data (in-sample, optimistic).
-Notebook test split: MAE INR 70.87, R2 0.772.
+The served model is models/nuego_fare_model_linear.pkl, made by scripts/train_linear_fare_model.py (one-hot
+Route / AC / Sleeper, standardised numbers, LinearRegression). It beat the notebook's Decision Tree on every
+split we tried (notebook split: MAE INR ~41 against 70.87). The Decision Tree pickle is kept in models/.
+
+Competitor inputs follow the notebook: min / median / average competitor fare for the route, over ALL
+competitor rows. The notebook first groups by route + AC + Sleeper and falls back to the route alone; the
+competitor file with AC and Sleeper columns (competitor_preprocessed3.csv) is not in the repo, so only the
+route-level step is used. This is NOT restricted to rows captured before a prediction time (unlike
+app.fare_model), so for past services it sees later competitor fares.
+The low / high range is the 80th percentile of 5-fold cross-validated errors (services the model had not seen).
+No coach type (AC / Sleeper) means no prediction.
 """
 from functools import lru_cache
 
@@ -17,8 +20,8 @@ import pandas as pd
 
 from app import fare_model
 
-MODEL_VERSION = "decision_tree.ipynb fare model (nuego_fare_model.pkl)"
-NOTEBOOK_MAE = 70.87
+MODEL_VERSION = "linear regression fare model (nuego_fare_model_linear.pkl)"
+LINEAR_PICKLE_PATH = fare_model.PICKLE_PATH.with_name("nuego_fare_model_linear.pkl")
 
 
 def route_stats(comp: pd.DataFrame) -> pd.DataFrame:
@@ -42,10 +45,12 @@ def build_features(services: pd.DataFrame, comp: pd.DataFrame) -> pd.DataFrame:
 def load() -> dict:
     from app.db import engine  # imported here so the module works without a database in tests
     feats = build_features(pd.read_sql_table("services", engine), pd.read_sql_table("competitor_fares", engine))
-    bundle = fare_model.make_bundle(joblib.load(fare_model.PICKLE_PATH), feats)
+    saved = joblib.load(LINEAR_PICKLE_PATH)
+    bundle = fare_model.make_bundle(saved["model"], feats)
     bundle["version"] = MODEL_VERSION
-    bundle["range_basis"] = (f"80th percentile of the model's own errors (in-sample, optimistic); "
-                             f"notebook test MAE INR {NOTEBOOK_MAE}")
+    bundle["half_width"] = saved["half_width"]
+    bundle["range_basis"] = (f"80th percentile of 5-fold cross-validated errors on {saved['rows']} services; "
+                             f"cross-validated MAE INR {saved['cv_mae']:.0f}")
     return bundle
 
 

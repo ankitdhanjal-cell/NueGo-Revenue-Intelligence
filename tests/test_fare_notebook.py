@@ -39,7 +39,7 @@ def test_real_predictions_have_ordered_ranges_and_no_guessed_coach_type():
     assert ok.sum() >= 200
     assert (p.loc[ok, "fare_low"] <= p.loc[ok, "fare_mid"]).all() and (p.loc[ok, "fare_mid"] <= p.loc[ok, "fare_high"]).all()
     assert ok.equals(feats[fare_model.NEEDED].notna().all(axis=1))  # no AC / Sleeper means no prediction
-    assert fare_notebook.load()["version"] == fare_notebook.MODEL_VERSION and "70.87" in fare_notebook.load()["range_basis"]
+    assert fare_notebook.load()["version"] == fare_notebook.MODEL_VERSION and "cross-validated" in fare_notebook.load()["range_basis"]
 
 
 def test_predict_for_one_service():
@@ -48,3 +48,20 @@ def test_predict_for_one_service():
     p = fare_notebook.predict_for_service(services, comp, "BKG2023011")
     assert p and p["low"] <= p["mid"] <= p["high"] and p["competitor_rows_used"] > 0
     assert fare_notebook.predict_for_service(services, comp, "NOPE") is None
+
+
+def test_served_model_is_linear_regression_and_beats_the_notebook_tree():
+    import joblib
+    from sklearn.linear_model import LinearRegression
+    saved = joblib.load(fare_notebook.LINEAR_PICKLE_PATH)
+    assert isinstance(saved["model"].steps[-1][1], LinearRegression)
+    assert fare_notebook.load()["model"] is not None and "linear" in fare_notebook.MODEL_VERSION
+    assert saved["notebook_split_mae"] < 70.87 and saved["cv_mae"] < 70.87  # the Decision Tree's notebook MAE
+    assert 0 < saved["half_width"] < 150
+
+
+def test_predictions_are_never_negative():
+    feats = fare_notebook.build_features(pd.read_sql_table("services", engine), pd.read_sql_table("competitor_fares", engine))
+    wild = feats.assign(distance_km=feats["distance_km"] * 40, competitor_min_fare=-5000.0)  # far outside the data
+    p = fare_notebook.predict(fare_notebook.load(), wild)
+    assert (p["fare_low"].dropna() >= 0).all() and (p["fare_mid"].dropna() >= 0).all()

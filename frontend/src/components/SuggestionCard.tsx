@@ -30,9 +30,7 @@ export default function SuggestionCard({ serviceId }: { serviceId: string }) {
                     <span className="text-slate-400">No prediction</span>
                   )}
                 </div>
-                <div className="mt-1 text-sm text-slate-600">
-                  From the decision-tree model in decision_tree.ipynb
-                </div>
+                <div className="mt-1 text-sm text-slate-600">From the linear regression fare model</div>
               </div>
               <div>
                 <div className="text-sm text-slate-600">Suggested fare, inside your pricing rules</div>
