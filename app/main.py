@@ -1,12 +1,31 @@
+"""The API. Module A: P&L and seat forecast. Module B: fare prediction, rules, rivals, price response and the
+suggestion. Module C: desk, alerts, owners, what-if and decisions. Nothing here writes to any pricing system."""
+from datetime import datetime
+
 import pandas as pd
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
+from sqlalchemy import text
 
+from app import curve as curve_calc
+from app import decisions as decisions_calc
+from app import desk as desk_calc
+from app import elasticity as elast
+from app import fare_model
+from app import owners as owners_calc
+from app import pipeline
+from app import pnl as pnl_calc
+from app import rivals as rival_calc
+from app import rules as pricing_rules
+from app import suggestion as suggestion_calc
+from app import whatif as whatif_calc
 from app.auth import require_admin, require_user
+from app.config import USERS, W_BEHIND, W_MARGIN
 from app.db import engine
-from app.pnl import GROUPABLE, UNAVAILABLE, totals, with_coach_type
 
 app = FastAPI(title="NueGo Revenue Intelligence")
+REFERENCE_NOTE = "Reference only. This is not a suggested fare and is not written to any system."
 
 
 def _json(df: pd.DataFrame) -> list[dict]:
@@ -14,10 +33,15 @@ def _json(df: pd.DataFrame) -> list[dict]:
     return df.astype(object).where(df.notna(), None).to_dict("records")
 
 
+def _route_services(route_id: str) -> pd.DataFrame:
+    return pd.read_sql_query(text("SELECT * FROM services WHERE route_id = :r"), engine, params={"r": route_id},
+                             parse_dates=["booking_time", "departure_at"])
+
+
+# ---------- Module A: profit and loss ----------
 @app.get("/pnl/services/{service_id}")
 def pnl_service(service_id: str):
-    df = pd.read_sql_query("SELECT * FROM pnl_services WHERE service_id = %(i)s",
-                           engine, params={"i": service_id})
+    df = pd.read_sql_query("SELECT * FROM pnl_services WHERE service_id = %(i)s", engine, params={"i": service_id})
     if df.empty:
         raise HTTPException(404, f"service {service_id} not found")
     return _json(df)[0]
@@ -25,14 +49,15 @@ def pnl_service(service_id: str):
 
 @app.get("/pnl/totals")
 def pnl_totals(group_by: str = Query("corridor")):
-    if group_by in UNAVAILABLE:
+    if group_by in pnl_calc.UNAVAILABLE:
         raise HTTPException(422, f"group_by={group_by} is not available: the data has no {group_by} column")
-    if group_by not in GROUPABLE:
-        raise HTTPException(422, f"group_by must be one of {sorted(GROUPABLE)}")
+    if group_by not in pnl_calc.GROUPABLE:
+        raise HTTPException(422, f"group_by must be one of {sorted(pnl_calc.GROUPABLE)}")
     pnl = pd.read_sql_table("pnl_services", engine)
     if group_by == "coach_type":
-        pnl = with_coach_type(pnl, pd.read_sql_table("seat_forecasts", engine, columns=["service_id", "ac", "sleeper"]))
-    return {"group_by": group_by, "rows": _json(totals(pnl, group_by))}
+        pnl = pnl_calc.with_coach_type(pnl, pd.read_sql_table("seat_forecasts", engine,
+                                                              columns=["service_id", "ac", "sleeper"]))
+    return {"group_by": group_by, "rows": _json(pnl_calc.totals(pnl, group_by))}
 
 
 @app.get("/pnl/cancelled")
@@ -42,102 +67,10 @@ def pnl_cancelled():
     return {"count": len(df), "rows": _json(df)}
 
 
-# ---------- Step 3: reference fare prediction (never the suggested fare) ----------
-from datetime import datetime  # noqa: E402
-
-from pydantic import BaseModel  # noqa: E402
-
-from app import fare_notebook  # noqa: E402
-
-REFERENCE_NOTE = "Reference only. This is not a suggested fare and is not written to any system."
-
-
-@app.get("/services/{service_id}/fare-prediction")
-def fare_prediction(service_id: str):
-    df = pd.read_sql_query("SELECT * FROM fare_predictions WHERE service_id = %(i)s",
-                           engine, params={"i": service_id})
-    if df.empty:
-        raise HTTPException(404, f"no fare prediction for service {service_id}")
-    r = _json(df)[0]
-    return {"service_id": service_id, "route_id": r["route_id"], "model_version": r["model_version"],
-            "fare_low": r["fare_low"], "fare_mid": r["fare_mid"], "fare_high": r["fare_high"],
-            "engine_fare": r["engine_fare"], "gap_to_engine": r["gap_to_engine"],
-            "competitor_rows_used": r["comp_n"], "insufficient_data": bool(r["insufficient_data"]),
-            "note": REFERENCE_NOTE}
-
-
-class FareRequest(BaseModel):
-    route_id: str
-    departure_at: datetime
-    available_seats: int
-    ac: int  # 1 = AC. Required: coach type is never guessed.
-    sleeper: int
-    as_of: datetime | None = None  # kept for compatibility; the notebook method does not cut competitor rows by time
-    engine_fare: float | None = None
-
-
-@app.post("/fare/predict")
-def fare_predict(req: FareRequest):
-    services = pd.read_sql_table("services", engine)
-    route = services[services["route_id"] == req.route_id]
-    if route.empty:
-        raise HTTPException(404, f"unknown route {req.route_id}")
-    comp = pd.read_sql_table("competitor_fares", engine)
-    dep = pd.Timestamp(req.departure_at)
-    stats = fare_notebook.route_stats(comp).set_index("route_id")
-    cs = stats.loc[req.route_id] if req.route_id in stats.index else None
-    comp_feats = (dict(comp_min_fare=float("nan"), comp_median_fare=float("nan"), comp_avg_fare=float("nan"), comp_n=0)
-                  if cs is None else dict(comp_min_fare=cs["comp_min_fare"], comp_median_fare=cs["comp_median_fare"],
-                                          comp_avg_fare=cs["comp_avg_fare"], comp_n=int(cs["comp_n"])))
-    feats = pd.DataFrame([dict(
-        route_id=req.route_id, available_seats=req.available_seats, ac=req.ac, sleeper=req.sleeper,
-        total_seats=route["total_seats"].mode().iloc[0], distance_km=route["distance_km"].mode().iloc[0],
-        holiday_score=0.0, departure_month=dep.month, departure_weekday=dep.weekday(),
-        departure_hour=dep.hour, duration_hours=route["duration_hours"].median(),
-        **comp_feats)])
-    p = fare_notebook.predict(fare_notebook.load(), feats).iloc[0]
-    gap = None if req.engine_fare is None else float(p["fare_mid"] - req.engine_fare)
-    return {"route_id": req.route_id, "model_version": p["model_version"],
-            "fare_low": float(p["fare_low"]), "fare_mid": float(p["fare_mid"]), "fare_high": float(p["fare_high"]),
-            "gap_to_engine": gap, "competitor_rows_used": int(feats.loc[0, "comp_n"]),
-            "insufficient_data": bool(p["insufficient_data"]),
-            "assumptions": "holiday_score assumed 0 (not supplied); competitor fares are the route-level summary used in the notebook", "note": REFERENCE_NOTE}
-
-
-# ---------- Step 4: expected seats sold (checkpoint) ----------
-@app.get("/forecast/services/{service_id}/curve")
-def forecast_curve(service_id: str):
-    f = pd.read_sql_query("SELECT * FROM seat_forecasts WHERE service_id = %(i)s", engine, params={"i": service_id})
-    if f.empty:
-        raise HTTPException(404, f"no forecast for service {service_id}")
-    r = _json(f)[0]
-    obs = pd.read_sql_query("SELECT band, avg_seats_sold, n FROM seat_observed_points WHERE route_id = %(r)s",
-                            engine, params={"r": r["route_id"]})
-    out = {
-        "service_id": service_id, "route_id": r["route_id"], "model_version": r["model_version"],
-        "expected_seats_sold": {"low": r["expected_low"], "mid": r["expected_mid"], "high": r["expected_high"]},
-        "actual_seats_sold": r["actual_seats_sold"], "days_to_go_at_snapshot": round(r["days_to_go"], 2),
-        "gap_to_expected": r["gap_to_expected"], "behind_checkpoint": bool(r["behind_checkpoint"]),
-        "insufficient_data": bool(r["insufficient_data"]),
-        "curve": None,
-        "curve_note": ("No booking-curve shape is returned: in this data seats sold does not vary with "
-                       "days-to-go and there is one snapshot per service, so a shape would be invented. "
-                       "Observed pooled points for the route are given instead."),
-        "observed_points": _json(obs),
-    }
-    return {**out, **curve_extras_for(service_id, r)}
-
-
-# ---------- Step 5: attention ranking and trend ----------
-from app import pnl as pnl_calc  # noqa: E402
-from app.config import W_BEHIND, W_MARGIN  # noqa: E402
-
-
 @app.get("/pnl/ranking")
 def pnl_ranking(limit: int = Query(50, ge=1, le=1000)):
-    pnl = pd.read_sql_table("pnl_services", engine)
-    fc = pd.read_sql_table("seat_forecasts", engine)
-    ranked, excluded = pnl_calc.rank(pnl, fc, W_BEHIND, W_MARGIN)
+    ranked, excluded = pnl_calc.rank(pd.read_sql_table("pnl_services", engine),
+                                     pd.read_sql_table("seat_forecasts", engine), W_BEHIND, W_MARGIN)
     return {"weights": {"behind_checkpoint": W_BEHIND, "expected_margin": W_MARGIN},
             "score_formula": "w_behind*behind_part + w_margin*margin_part; ties -> earliest departure",
             "note": "Forecast is weak (MAE close to a simple average); treat the order as a screening aid.",
@@ -154,10 +87,72 @@ def pnl_trend(service_id: str):
     return pnl_calc.trend(pnl, service_id)
 
 
-# ---------- Module B: pricing rules and allowed fare steps ----------
-from app import rules as pricing_rules  # noqa: E402
+# ---------- Module A: expected seats sold (checkpoint) ----------
+@app.get("/forecast/services/{service_id}/curve")
+def forecast_curve(service_id: str):
+    f = pd.read_sql_query("SELECT * FROM seat_forecasts WHERE service_id = %(i)s", engine, params={"i": service_id})
+    if f.empty:
+        raise HTTPException(404, f"no forecast for service {service_id}")
+    r = _json(f)[0]
+    obs = pd.read_sql_query("SELECT band, avg_seats_sold, n FROM seat_observed_points WHERE route_id = %(r)s",
+                            engine, params={"r": r["route_id"]})
+    s = _route_services(r["route_id"])
+    me = s[s["service_id"] == service_id]
+    extras = curve_calc.curve_extras(me, s[s["service_id"] != service_id]) if not me.empty else {}
+    return {
+        "service_id": service_id, "route_id": r["route_id"], "model_version": r["model_version"],
+        "expected_seats_sold": {"low": r["expected_low"], "mid": r["expected_mid"], "high": r["expected_high"]},
+        "actual_seats_sold": r["actual_seats_sold"], "days_to_go_at_snapshot": round(r["days_to_go"], 2),
+        "gap_to_expected": r["gap_to_expected"], "behind_checkpoint": bool(r["behind_checkpoint"]),
+        "insufficient_data": bool(r["insufficient_data"]),
+        "curve": None,
+        "curve_note": ("No booking-curve shape is returned: in this data seats sold does not vary with "
+                       "days-to-go and there is one snapshot per service, so a shape would be invented. "
+                       "Observed pooled points for the route are given instead."),
+        "observed_points": _json(obs),
+        **extras,
+        "forecast_to_departure": {
+            "days_to_go": 0, "seats": {"low": r["expected_low"], "mid": r["expected_mid"], "high": r["expected_high"]},
+            "source": "seat forecast (team seat model)"},
+        "flags": {"no_history": extras.get("band_status") != "ok", "insufficient_data": bool(r["insufficient_data"])},
+    }
 
 
+# ---------- Module B: predicted fare (a reference, never the suggested fare) ----------
+@app.get("/services/{service_id}/fare-prediction")
+def fare_prediction(service_id: str):
+    df = pd.read_sql_query("SELECT * FROM fare_predictions WHERE service_id = %(i)s", engine, params={"i": service_id})
+    if df.empty:
+        raise HTTPException(404, f"no fare prediction for service {service_id}")
+    r = _json(df)[0]
+    return {"service_id": service_id, "route_id": r["route_id"], "model_version": r["model_version"],
+            "fare_low": r["fare_low"], "fare_mid": r["fare_mid"], "fare_high": r["fare_high"],
+            "engine_fare": r["engine_fare"], "gap_to_engine": r["gap_to_engine"],
+            "insufficient_data": bool(r["insufficient_data"]), "note": REFERENCE_NOTE}
+
+
+class FareRequest(BaseModel):
+    route_id: str
+    departure_at: datetime
+    available_seats: int = Field(ge=0)
+    holiday_score: float = Field(0, ge=0, le=1)  # 0 none, 0.5 the day before or after a holiday, 1 the holiday
+    engine_fare: float | None = None
+
+
+@app.post("/fare/predict")
+def fare_predict(req: FareRequest):
+    bundle = fare_model.load()
+    if req.route_id not in bundle["routes"]:
+        raise HTTPException(404, f"unknown route {req.route_id}")
+    p = fare_model.predict(bundle, pd.DataFrame([req.model_dump()])).iloc[0]
+    return {"route_id": req.route_id, "model_version": p["model_version"],
+            "fare_low": float(p["fare_low"]), "fare_mid": float(p["fare_mid"]), "fare_high": float(p["fare_high"]),
+            "gap_to_engine": None if req.engine_fare is None else float(p["fare_mid"] - req.engine_fare),
+            "holiday_score": req.holiday_score, "insufficient_data": bool(p["insufficient_data"]),
+            "note": REFERENCE_NOTE}
+
+
+# ---------- Module B: pricing rules ----------
 @app.get("/rules")
 def get_rules():
     """The active pricing rules and allowed fare steps (newest version, read from the database)."""
@@ -171,15 +166,10 @@ def put_rules(body: pricing_rules.RulesIn, _admin: dict = Depends(require_admin)
     return pricing_rules.save_rules(engine, body)
 
 
-# ---------- Module B: rivals ----------
-from sqlalchemy import text  # noqa: E402
-
-from app import rivals as rival_calc  # noqa: E402
-
-
+# ---------- Module B: rivals, price response, suggestion ----------
 @app.get("/rivals/services/{service_id}")
 def rivals(service_id: str, as_of: datetime | None = None):
-    """Rival departures within 30 minutes of ours. as_of defaults to the service's booking time."""
+    """Competitor departures near ours. as_of defaults to the service's booking time."""
     s = pd.read_sql_query(text("SELECT * FROM services WHERE service_id = :i"), engine, params={"i": service_id},
                           parse_dates=["booking_time", "departure_at"])
     if s.empty:
@@ -191,10 +181,6 @@ def rivals(service_id: str, as_of: datetime | None = None):
     return rival_calc.rival_view(service, comp, pd.Timestamp(as_of or service["booking_time"]))
 
 
-# ---------- Module B: price response ----------
-from app import elasticity as elast  # noqa: E402
-
-
 @app.get("/pricing/elasticity")
 def pricing_elasticity(route_id: str, slot: str | None = None, dtg_band: str | None = None,
                        day_type: str | None = None):
@@ -203,8 +189,7 @@ def pricing_elasticity(route_id: str, slot: str | None = None, dtg_band: str | N
                                ("day_type", day_type, elast.DAY_TYPES)):
         if val is not None and val not in allowed:
             raise HTTPException(422, f"{name} must be one of {allowed}")
-    s = pd.read_sql_query(text("SELECT * FROM services WHERE route_id = :r"), engine, params={"r": route_id},
-                          parse_dates=["departure_at"])
+    s = _route_services(route_id)
     if s.empty:
         raise HTTPException(404, f"unknown route {route_id}")
     s = elast.add_segment_columns(s)
@@ -218,26 +203,6 @@ def pricing_elasticity(route_id: str, slot: str | None = None, dtg_band: str | N
             "note": "Not enough data is a valid answer here. No slope is invented."}
 
 
-# ---------- Module B: booking-curve band (extends Module A's /forecast/.../curve) ----------
-from app import curve as curve_calc  # noqa: E402
-
-
-def curve_extras_for(service_id: str, r: dict) -> dict:
-    """Extra curve fields: actual, band, checkpoints, forecast to departure. Module A's fields stay as they are."""
-    s = pd.read_sql_query(text("SELECT * FROM services WHERE route_id = :r"), engine, params={"r": r["route_id"]},
-                          parse_dates=["departure_at"])
-    me = s[s["service_id"] == service_id]
-    extras = curve_calc.curve_extras(me, s[s["service_id"] != service_id]) if not me.empty else {}
-    flags = {"no_history": extras.get("band_status") != "ok", "insufficient_data": bool(r["insufficient_data"])}
-    return {**extras, "forecast_to_departure": {
-        "days_to_go": 0, "seats": {"low": r["expected_low"], "mid": r["expected_mid"], "high": r["expected_high"]},
-        "source": "seat forecast (team seat model)"}, "flags": flags}
-
-
-# ---------- Module B: suggested fare (advice only) ----------
-from app import suggestion as suggestion_calc  # noqa: E402
-
-
 @app.get("/services/{service_id}/suggestion")
 def suggestion(service_id: str, minutes_since_last_change: float | None = Query(None, ge=0)):
     """Suggested fare from the allowed fare steps, inside every pricing rule. Advice only, never written anywhere."""
@@ -247,36 +212,11 @@ def suggestion(service_id: str, minutes_since_last_change: float | None = Query(
     return out
 
 
-# ---------- Module B: desk, alerts, what-if, decisions, users ----------
-from app import decisions as decisions_calc  # noqa: E402
-from app import owners as owners_calc  # noqa: E402
-from app import pipeline  # noqa: E402
-from app import desk as desk_calc  # noqa: E402
-from app import whatif as whatif_calc  # noqa: E402
-from app.config import USERS  # noqa: E402
-
-
+# ---------- Module C: desk, alerts, owners, what-if, decisions ----------
 def _window(window: str) -> str:
     if window not in desk_calc.WINDOWS:
         raise HTTPException(422, f"window must be one of {list(desk_calc.WINDOWS)}")
     return window
-
-
-@app.get("/pipeline/status")
-def pipeline_status():
-    """When the computed tables were last refreshed (scripts/refresh.py). None until the first run."""
-    return {"last_run": pipeline.last_run(engine)}
-
-
-@app.get("/users")
-def users():
-    """Who can sign in (auth stub). The UI sends the chosen id as X-User-Id."""
-    return {"items": USERS}
-
-
-@app.get("/routes")
-def routes():
-    return {"items": desk_calc.routes(engine)}
 
 
 @app.get("/desk/summary")
@@ -316,9 +256,9 @@ def set_owner(route_id: str, body: OwnerIn, admin: dict = Depends(require_admin)
     try:
         owners_calc.assign(engine, route_id, body.user_id, admin["id"], [r["id"] for r in desk_calc.routes(engine)])
     except owners_calc.UnknownRoute:
-        raise HTTPException(404, f"corridor {route_id} not found")
+        raise HTTPException(404, f"corridor {route_id} not found") from None
     except owners_calc.UnknownUser:
-        raise HTTPException(422, f"user {body.user_id} not found")
+        raise HTTPException(422, f"user {body.user_id} not found") from None
     return next(o for o in owners_calc.view(engine, desk_calc.routes(engine)) if o["route_id"] == route_id)
 
 
@@ -348,3 +288,21 @@ def decide(service_id: str, body: decisions_calc.DecisionIn, user: dict = Depend
     if out is None:
         raise HTTPException(404, f"service {service_id} not found")
     return out
+
+
+# ---------- Support: who can sign in, routes, data refresh ----------
+@app.get("/users")
+def users():
+    """Who can sign in (auth stub). The UI sends the chosen id as X-User-Id."""
+    return {"items": USERS}
+
+
+@app.get("/routes")
+def routes():
+    return {"items": desk_calc.routes(engine)}
+
+
+@app.get("/pipeline/status")
+def pipeline_status():
+    """When the computed tables were last refreshed (scripts/refresh.py). None until the first run."""
+    return {"last_run": pipeline.last_run(engine)}

@@ -1,14 +1,13 @@
-"""Step 3: reference fare prediction (Decision Tree). Never the suggested fare.
+"""Module B: the predicted fare. A reference for the suggestion, never written to any system.
 
-Served model: the team's own pipeline models/nuego_fare_model.pkl (DecisionTreeRegressor,
-depth 5, min leaf 3). Its AC / Sleeper inputs come from the team-supplied file (see
-cleaning.attach_coach_attrs); services without them get no prediction. Its competitor
-inputs are rebuilt here as-of the booking time, not from the all-time stats the notebook used.
-The low/high range comes from that model's own errors on the data (in-sample, so optimistic).
+Linear Regression on the inputs that carry signal in this data:
+- route (one-hot), seats still available, holiday score (0 / 0.5 / 1), weekend (Friday to Sunday departure),
+- departure year: fares rise every year, in step with costs. Without it the model missed 2026 fares by INR 80.
+Left out because they carry no signal here: AC / Sleeper (no fare difference in the data), competitor fares and
+distance / duration / total seats (one fixed value per route), month, weekday and hour.
 
-Prediction timestamp = booking_time. Competitor rows are used only if captured at or
-before it, on the same route, departing within +-3 days. Coach type is NOT a feature: the
-NueGo data has no coach type and we do not invent one.
+Trained by scripts/train_fare_model.py. The low / high range is the 80th percentile of 5-fold cross-validated
+errors (services the model had not seen). A route the model was not trained on gets no prediction.
 """
 from functools import lru_cache
 from pathlib import Path
@@ -16,78 +15,62 @@ from pathlib import Path
 import joblib
 import numpy as np
 import pandas as pd
+from sklearn.compose import ColumnTransformer
+from sklearn.linear_model import LinearRegression
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-PICKLE_PATH = Path(__file__).resolve().parents[1] / "models" / "nuego_fare_model.pkl"
-MODEL_VERSION = "nuego_fare_model.pkl (team Decision Tree v1)"
-WINDOW_DAYS = 3
-MIN_ROUTE_TRAIN_ROWS = 20
-
-# our column -> the column name the team's pipeline was trained with
-COLUMN_MAP = {
-    "available_seats": "Available Seats", "total_seats": "Total Seats", "distance_km": "Distance (km)",
-    "holiday_score": "holiday_score", "departure_month": "Departure Month",
-    "departure_weekday": "Departure Weekday", "departure_hour": "Departure Hour",
-    "duration_hours": "Duration (hours)", "comp_min_fare": "competitor_min_fare",
-    "comp_median_fare": "competitor_median_fare", "comp_avg_fare": "competitor_avg_fare",
-    "route_id": "Route ID", "ac": "AC", "sleeper": "Sleeper"}
-NEEDED = ["route_id", "ac", "sleeper"]
+PICKLE_PATH = Path(__file__).resolve().parents[1] / "models" / "nuego_fare_model_linear.pkl"
+MODEL_VERSION = "linear regression fare model v2 (route, seats left, holiday, weekend, year)"
+NUMERIC = ["available_seats", "holiday_score", "weekend", "year"]
+WEEKEND = {4, 5, 6}  # Friday, Saturday, Sunday
 
 
-def competitor_features(route_id: str, departure_at, as_of, comp: pd.DataFrame) -> dict:
-    """Same route, departing within +-3 days, captured at or before `as_of`. Else NaN."""
-    c = comp[(comp["route_id"] == route_id) & (comp["captured_at"] <= as_of)
-             & ((comp["departure_at"] - departure_at).abs() <= pd.Timedelta(days=WINDOW_DAYS))]
-    if c.empty:
-        return dict(comp_min_fare=np.nan, comp_median_fare=np.nan, comp_avg_fare=np.nan, comp_n=0)
-    return dict(comp_min_fare=c["fare"].min(), comp_median_fare=c["fare"].median(),
-                comp_avg_fare=c["fare"].mean(), comp_n=len(c))
+def features(df: pd.DataFrame) -> pd.DataFrame:
+    """Model inputs from rows with route_id, available_seats, holiday_score and departure_at."""
+    dep = pd.to_datetime(df["departure_at"])
+    return pd.DataFrame({"route_id": df["route_id"].astype(str), "available_seats": df["available_seats"].astype(float),
+                         "holiday_score": df["holiday_score"].astype(float),
+                         "weekend": dep.dt.weekday.isin(WEEKEND).astype(int), "year": dep.dt.year}, index=df.index)
 
 
-def build_features(services: pd.DataFrame, comp: pd.DataFrame) -> pd.DataFrame:
-    s = services.copy()
-    s.columns = [str(c) for c in s.columns]  # SQL column names are not plain str
-    # one scheduled duration per route: fill the few blanks from the same route, never another
-    s["duration_hours"] = s["duration_hours"].fillna(s.groupby("route_id")["duration_hours"].transform("median"))
-    cf = pd.DataFrame([competitor_features(r.route_id, r.departure_at, r.booking_time, comp)
-                       for r in s.itertuples()], index=s.index)
-    return pd.concat([s, cf], axis=1)
+def new_pipeline():
+    pre = ColumnTransformer([("route", OneHotEncoder(handle_unknown="ignore"), ["route_id"]),
+                             ("numeric", StandardScaler(), NUMERIC)])
+    return make_pipeline(pre, LinearRegression())
 
 
-def model_frame(feats: pd.DataFrame) -> pd.DataFrame:
-    return feats[list(COLUMN_MAP)].rename(columns=COLUMN_MAP)
-
-
-def make_bundle(model, feats: pd.DataFrame) -> dict:
-    """The team's pipeline plus a range width taken from its own errors on the data.
-
-    These errors are in-sample (the pickle was fit on this data), so the range is optimistic;
-    it is labelled that way in `range_basis`.
-    """
-    f = feats[~feats["flag_cancelled"] & feats[NEEDED].notna().all(axis=1)]
-    err = np.abs(f["fare_on_sale"].to_numpy() - model.predict(model_frame(f)))
-    return dict(model=model, version=MODEL_VERSION, half_width=float(np.quantile(err, 0.8)),
-                range_basis="80th percentile of the team model's own errors (in-sample, optimistic)",
-                train_routes={k: int(v) for k, v in f["route_id"].value_counts().items()})
+def training_rows(services: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
+    """Every service that ran (not cancelled) with a fare on sale."""
+    s = services[~services["flag_cancelled"].astype(bool) & services["fare_on_sale"].notna()]
+    return features(s), s["fare_on_sale"].astype(float)
 
 
 @lru_cache(maxsize=1)
 def load() -> dict:
-    from app.db import engine  # imported here so the module works without a database in tests
-    feats = build_features(pd.read_sql_table("services", engine), pd.read_sql_table("competitor_fares", engine))
-    return make_bundle(joblib.load(PICKLE_PATH), feats)
+    """The saved bundle: model, half_width, routes, rows, cv_mae, cv_r2, future_mae, future_year."""
+    return joblib.load(PICKLE_PATH)
 
 
-def predict(bundle: dict, feats: pd.DataFrame) -> pd.DataFrame:
-    """Rows missing route/AC/Sleeper get no prediction (NaN) and insufficient_data=True."""
-    out = pd.DataFrame(index=feats.index, columns=["fare_low", "fare_mid", "fare_high"], dtype=float)
-    ok = feats[NEEDED].notna().all(axis=1)
+def predict(bundle: dict, df: pd.DataFrame) -> pd.DataFrame:
+    """fare_low / fare_mid / fare_high per row; NaN with insufficient_data for an unknown route or missing input."""
+    x = features(df)
+    ok = x["route_id"].isin(bundle["routes"]) & x[NUMERIC].notna().all(axis=1)
+    out = pd.DataFrame(index=df.index, columns=["fare_low", "fare_mid", "fare_high"], dtype=float)
     if ok.any():
-        mid = bundle["model"].predict(model_frame(feats[ok]))
-        mid = np.maximum(mid, 0)  # a linear model can go below zero far outside its data
+        mid = np.maximum(bundle["model"].predict(x[ok]), 0)
         out.loc[ok, "fare_mid"] = mid.round(0)
         out.loc[ok, "fare_low"] = np.maximum(mid - bundle["half_width"], 0).round(0)
         out.loc[ok, "fare_high"] = (mid + bundle["half_width"]).round(0)
-    out["insufficient_data"] = (~ok) | (feats["comp_n"] == 0) | (
-        feats["route_id"].map(bundle["train_routes"]).fillna(0) < MIN_ROUTE_TRAIN_ROWS)
-    out["model_version"] = bundle["version"]
+    out["insufficient_data"] = ~ok
+    out["model_version"] = MODEL_VERSION
     return out
+
+
+def predict_one(service: pd.Series) -> dict | None:
+    """One service's prediction as {low, mid, high, model_version}, or None when there is none."""
+    p = predict(load(), service.to_frame().T).iloc[0]
+    if p["insufficient_data"]:
+        return None
+    return dict(low=float(p["fare_low"]), mid=float(p["fare_mid"]), high=float(p["fare_high"]),
+                model_version=MODEL_VERSION)

@@ -146,15 +146,15 @@ def test_twenty_real_services_match_a_hand_calculation_from_the_raw_file():
 
     with open("data/raw/route_details.csv", encoding="utf-8-sig") as f:
         rows = list(csv.DictReader(f))
-    route_hours = {r: median(float(x["Duration (hours)"]) for x in rows if x["w"] == r and x["Duration (hours)"])
-                   for r in {x["w"] for x in rows}}
+    route_hours = {r: median(float(x["Duration (hours)"]) for x in rows if x["Route ID"] == r and x["Duration (hours)"])
+                   for r in {x["Route ID"] for x in rows}}
     pnl = pd.read_sql_table("pnl_services", engine).set_index("service_id")
     for r in random.Random(42).sample(rows, 20):
         sold = int(r["Total Seats"]) - int(r["Available Seats"])
         refund = money(r["Refund Amount (INR)"]) if r["Booking Status"] == "Cancelled" else 0
         revenue = max(sold * money(r["Fare on Sale (INR)"]) - refund, 0)
-        hours = float(r["Duration (hours)"]) if r["Duration (hours)"] else route_hours[r["w"]]
-        crew = money(r["Crew Cost (INR)"]) * hours / (TRIPS_PER_ROUTE_MONTH * route_hours[r["w"]])
+        hours = float(r["Duration (hours)"]) if r["Duration (hours)"] else route_hours[r["Route ID"]]
+        crew = money(r["Crew Cost (INR)"]) * hours / (TRIPS_PER_ROUTE_MONTH * route_hours[r["Route ID"]])
         cost = float(r["Distance (km)"]) * money(r["Coach Cost per km (INR)"]) + crew + money(r["Tolls (INR)"])
         got = pnl.loc[r["Booking ID"]]
         assert abs(got["revenue"] - revenue) < 1 and abs(got["cost_to_run"] - cost) < 1, r["Booking ID"]

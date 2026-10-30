@@ -22,14 +22,25 @@ def _comp(*rows):
     return df
 
 
-def test_names_never_appear_and_labels_follow_departure_order():
-    comp = _comp(("SecretBus", "R1", "2026-05-10 08:20", 450, "2026-05-04 09:00"),
-                 ("OtherCo", "R1", "2026-05-10 07:45", 520, "2026-05-04 09:00"))
+def test_operator_names_in_departure_order_and_nuego_is_never_a_rival():
+    comp = _comp(("FlixBus", "R1", "2026-05-10 08:20", 450, "2026-05-04 09:00"),
+                 ("zingbus", "R1", "2026-05-10 07:45", 520, "2026-05-04 09:00"),
+                 ("NueGo", "R1", "2026-05-10 08:00", 300, "2026-05-04 09:00"))
     out = rivals.rival_view(OURS, comp, AS_OF)
-    text = json.dumps(out)
-    assert "SecretBus" not in text and "OtherCo" not in text
-    assert [r["label"] for r in out["rivals"]] == ["Rival A", "Rival B"]
+    assert [r["operator"] for r in out["rivals"]] == ["zingbus", "FlixBus"]
     assert [r["minutes_from_ours"] for r in out["rivals"]] == [-15, 20]
+    assert "NueGo" not in json.dumps(out)
+
+
+def test_nearby_fares_cover_3_days_and_mark_late_captures():
+    comp = _comp(("A", "R1", "2026-05-13 08:00", 450, "2026-05-04 09:00"),
+                 ("B", "R1", "2026-05-08 10:00", 480, "2026-05-07 09:00"),
+                 ("C", "R1", "2026-05-13 08:01", 500, "2026-05-04 09:00"),
+                 ("D", "R2", "2026-05-10 08:00", 400, "2026-05-04 09:00"))
+    out = rivals.rival_view(OURS, comp, AS_OF)
+    assert out["rivals"] == [] and out["nearby_days"] == 3
+    assert [(f["operator"], f["gap_to_ours"], f["captured_after_prediction_time"]) for f in out["nearby_fares"]] == \
+        [("B", 20.0, True), ("A", 50.0, False)]
 
 
 def test_gap_is_our_fare_minus_rival_fare():
@@ -65,9 +76,16 @@ def test_other_route_is_ignored_and_missing_rating_is_none():
     assert out["rival_count"] == 0 and out["route_rating"] == {"avg": None, "count": 900}
 
 
-def test_label_runs_past_z():
-    assert rivals.rival_label(0) == "Rival A" and rivals.rival_label(25) == "Rival Z"
-    assert rivals.rival_label(26) == "Rival AA"
+def test_missing_reason_says_why_no_rival_is_shown():
+    assert rivals.rival_view(OURS, _comp(("A", "R1", "2026-05-10 08:00", 450, "2026-05-04 09:00")),
+                             AS_OF)["missing_reason"] is None
+    later = rivals.rival_view(OURS, _comp(("A", "R1", "2026-05-10 08:00", 450, "2026-05-06 09:00")), AS_OF)
+    assert later["missing_reason"] == "captured_after_prediction_time"
+    assert later["note"].startswith("1 rival departure(s) within 30 minutes") and "05 May 2026 12:00" in later["note"]
+    far = rivals.rival_view(OURS, _comp(("A", "R1", "2026-05-11 11:05", 450, "2026-05-04 09:00")), AS_OF)
+    assert far["missing_reason"] == "none_within_30_minutes" and "1 d 3 h 5 min away" in far["note"]
+    none = rivals.rival_view(OURS, _comp(("A", "R2", "2026-05-10 08:00", 450, "2026-05-04 09:00")), AS_OF)
+    assert none["missing_reason"] == "no_route_data"
 
 
 @pytest.fixture()
@@ -81,9 +99,9 @@ def client(monkeypatch):
     return TestClient(main.app)
 
 
-def test_api_returns_rival_and_hides_name(client):
+def test_api_returns_rival_with_its_name(client):
     r = client.get("/rivals/services/S1")
-    assert r.status_code == 200 and "SecretBus" not in r.text
+    assert r.status_code == 200 and r.json()["rivals"][0]["operator"] == "SecretBus"
     assert r.json()["rival_count"] == 1 and r.json()["route_rating"] == {"avg": 4.2, "count": 900}
 
 

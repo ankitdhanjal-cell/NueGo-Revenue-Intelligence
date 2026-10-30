@@ -10,6 +10,7 @@ import OwnersEditor from '../components/settings/OwnersEditor';
 import { state } from '../test/handlers';
 import { renderWithProviders } from '../test/utils';
 import DeskPage from './DeskPage';
+import FarePredictorPage from './FarePredictorPage';
 import ServicePage from './ServicePage';
 import WarningsPage from './WarningsPage';
 
@@ -139,7 +140,7 @@ describe('Review page', () => {
     expect(screen.getByText('Departs 25 Jan 2023, 08:10 AM', { exact: false })).toBeInTheDocument();
     expect(await screen.findByRole('button', { name: 'Approve' })).toBeInTheDocument();
     expect(screen.getByText('4.2 (900 ratings)')).toBeInTheDocument();
-    expect(screen.getByText(/Rival A/)).toHaveTextContent('Rival A ₹360, 20 min earlier');
+    expect(screen.getByText(/FlixBus/)).toHaveTextContent('FlixBus ₹360, 20 min earlier');
   });
 
   it('shows the same-weekday trend on the Money tab', async () => {
@@ -149,6 +150,17 @@ describe('Review page', () => {
     );
     expect(await within(table as HTMLElement).findByText('62.5%')).toBeInTheDocument();
     expect(within(table as HTMLElement).getByText('28 Dec 2022')).toBeInTheDocument();
+  });
+
+  it('says why no rival is shown on the Competitors tab, and still shows the route rating', async () => {
+    renderReview('S-OK', '?tab=rivals');
+    expect(
+      await screen.findByText(/nearest rival departure on this route is 3 h 20 min away/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Route rating: 4.2 \(940 ratings\)/)).toHaveTextContent('Our fare: ₹875');
+    const row = screen.getByRole('row', { name: /HRTC/ });
+    expect(row).toHaveTextContent('₹820');
+    expect(row).toHaveTextContent('after our seats were counted');
   });
 
   it('explains a null suggestion, still shows the prediction and shows no decision buttons', async () => {
@@ -198,5 +210,17 @@ describe('Decision dialogs', () => {
     await user.click(screen.getByRole('button', { name: 'Approve' }));
     await user.click(screen.getByRole('button', { name: 'Record decision' }));
     expect(await screen.findByText(/Already decided by Pricing analyst 1/)).toBeInTheDocument();
+  });
+});
+
+describe('Fare checker', () => {
+  it('asks for route, date, time, seats left and holiday, and shows the fare range', async () => {
+    renderWithProviders(<FarePredictorPage />);
+    expect(screen.queryByLabelText(/air conditioning/i)).not.toBeInTheDocument();
+    await screen.findByRole('option', { name: 'Delhi → Shimla' });
+    await userEvent.selectOptions(screen.getByLabelText('Holiday'), 'Holiday');
+    await userEvent.click(screen.getByRole('button', { name: 'Check fare' }));
+    expect(await screen.findByText('₹640 (₹594–₹686)')).toBeInTheDocument();
+    expect(screen.getByText(/20 seats left, holiday$/)).toBeInTheDocument();
   });
 });

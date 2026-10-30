@@ -1,4 +1,4 @@
-"""Write reference fare predictions for every service to `fare_predictions`.
+"""Write the predicted fare for every service to `fare_predictions` (read by GET /services/{id}/fare-prediction).
 Nothing is sent to any external system. Run: python -m scripts.compute_fare_predictions
 """
 import pandas as pd
@@ -8,16 +8,13 @@ from app.db import engine
 
 
 def main() -> None:
-    feats = fare_model.build_features(pd.read_sql_table("services", engine),
-                                      pd.read_sql_table("competitor_fares", engine))
-    bundle = fare_model.load()
-    pred = fare_model.predict(bundle, feats)
-    out = pd.concat([feats[["service_id", "route_id", "ac", "sleeper", "fare_on_sale", "comp_n", "comp_median_fare"]], pred], axis=1)
-    out = out.rename(columns={"fare_on_sale": "engine_fare"})
+    s = pd.read_sql_table("services", engine)
+    s.columns = [str(c) for c in s.columns]
+    pred = fare_model.predict(fare_model.load(), s)
+    out = pd.concat([s[["service_id", "route_id"]], s["fare_on_sale"].rename("engine_fare"), pred], axis=1)
     out["gap_to_engine"] = out["fare_mid"] - out["engine_fare"]
-    out["is_reference_only"] = True
     out.to_sql("fare_predictions", engine, if_exists="replace", index=False)
-    print(f"fare_predictions: {len(out)} rows, insufficient_data: {int(out['insufficient_data'].sum())}")
+    print(f"fare_predictions: {len(out)} rows, no prediction: {int(out['insufficient_data'].sum())}")
 
 
 if __name__ == "__main__":

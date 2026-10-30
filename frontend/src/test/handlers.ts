@@ -97,11 +97,12 @@ const suggestion = (id: string) =>
         rating: { avg: 4.2, count: 900 },
         rivals_either_side: {
           before: {
-            label: 'Rival A',
+            operator: 'FlixBus',
             departure_at: '2023-01-25T07:50:00',
             minutes_from_ours: -20,
             fare: 360,
             gap_to_ours: 25,
+            captured_at: '2023-01-23T10:30:00',
           },
           after: null,
         },
@@ -200,6 +201,28 @@ export const handlers = [
       ],
     }),
   ),
+  http.get(`${B}/rivals/services/:id`, ({ params }) =>
+    HttpResponse.json({
+      service_id: params.id,
+      our_fare_on_sale: 875,
+      rivals: [],
+      nearby_days: 3,
+      nearby_fares: [
+        {
+          operator: 'HRTC',
+          departure_at: '2026-11-08 21:00:00',
+          minutes_from_ours: -1515,
+          fare: 820,
+          gap_to_ours: 55,
+          captured_at: '2026-11-06 10:30:00',
+          captured_after_prediction_time: true,
+        },
+      ],
+      route_rating: { avg: 4.2, count: 940 },
+      flags: { rival_missing: true },
+      note: 'No rival departs within 30 minutes of ours. The nearest rival departure on this route is 3 h 20 min away. Nothing is estimated.',
+    }),
+  ),
   http.get(`${B}/pnl/services/:id/trend`, () =>
     HttpResponse.json({
       weekday: 'Wednesday',
@@ -240,6 +263,21 @@ export const handlers = [
   http.get(`${B}/decisions`, ({ request }) => {
     const id = new URL(request.url).searchParams.get('service_id');
     return HttpResponse.json({ items: state.decisions.filter((d) => !id || d.service_id === id) });
+  }),
+  http.post(`${B}/fare/predict`, async ({ request }) => {
+    const body = (await request.json()) as { holiday_score: number };
+    const mid = 500 + 140 * body.holiday_score;
+    return HttpResponse.json({
+      route_id: 'R003',
+      model_version: 'linear regression fare model v2',
+      fare_low: mid - 46,
+      fare_mid: mid,
+      fare_high: mid + 46,
+      gap_to_engine: null,
+      holiday_score: body.holiday_score,
+      insufficient_data: false,
+      note: 'Reference only.',
+    });
   }),
   http.post(`${B}/suggestions/:id/decision`, async ({ params, request }) => {
     const id = String(params.id);

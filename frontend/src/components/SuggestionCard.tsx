@@ -14,7 +14,7 @@ function RivalLine({ rival }: { rival: Rival | null }) {
   const m = rival.minutes_from_ours;
   return (
     <div>
-      {rival.label} <Money value={rival.fare} />,{' '}
+      {rival.operator} <Money value={rival.fare} />,{' '}
       {m === 0 ? 'same time' : `${Math.abs(m)} min ${m < 0 ? 'earlier' : 'later'}`}
     </div>
   );
@@ -142,12 +142,6 @@ export default function SuggestionCard({ serviceId }: { serviceId: string }) {
                     <span className="text-slate-500">({s.floor?.type})</span>
                   </dd>
                 </div>
-                {p?.competitor_rows_used != null && (
-                  <div className="flex gap-2">
-                    <dt className="w-44 text-slate-600">Competitor rows used</dt>
-                    <dd>{p.competitor_rows_used} (route-level summary)</dd>
-                  </div>
-                )}
               </dl>
             </details>
           </div>

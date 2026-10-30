@@ -1,7 +1,5 @@
 import pandas as pd
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.pool import StaticPool
 
 from app import curve, main
 
@@ -48,16 +46,6 @@ def test_other_route_and_cancelled_are_ignored():
 
 def test_checkpoints_cover_every_dtg_band():
     assert [c["dtg_band"] for c in _extras(_services(10))["checkpoints"]] == ["0-3", "3-7", "7-14", "14+"]
-
-
-def test_route_helper_adds_forecast_and_flags(monkeypatch):
-    eng = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
-    _services(10).to_sql("services", eng, index=False)
-    monkeypatch.setattr(main, "engine", eng)
-    r = dict(route_id="R1", expected_low=8.0, expected_mid=14.0, expected_high=20.0, insufficient_data=False)
-    out = main.curve_extras_for("NOW", r)
-    assert out["forecast_to_departure"]["seats"] == dict(low=8.0, mid=14.0, high=20.0)
-    assert out["band_status"] == "ok" and out["flags"] == {"no_history": False, "insufficient_data": False}
 
 
 def test_api_keeps_module_a_fields_and_adds_new_ones():

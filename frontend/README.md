@@ -38,19 +38,19 @@ The sidebar has the pages, a red badge with the alert count, the time the data w
    - Clicking a row opens a **quick-look panel**: the gap to checkpoint, fare on sale, suggested fare, extra seats and margin change, cost floor and reasons.
    - **Open full review** or the **Review** button goes to the full page.
 2. **Review page** (`/services/:id`)
-   - Four headline numbers, then **Our suggestion**: the predicted fare as a range, the suggested fare inside the pricing rules, the rating, the nearest rival before and after ours, and the reasons.
+   - Four headline numbers, then **Our suggestion**: the predicted fare as a range, the suggested fare inside the pricing rules, the rating, the nearest competitor before and after ours, by name, and the reasons.
    - The four buttons: Approve, Change fare, Reject and Something looks wrong. Each opens a dialog. A decision is only recorded; nothing is sent to a pricing system.
    - Five tabs:
      - **Seat pace:** the booking curve.
      - **Fare options:** price response and the what-if table.
-     - **Competitors:** rival departures and fares.
+     - **Competitors:** our fare and the route rating; competitors within 30 minutes (or the API's reason when there are none); and every competitor departure on the route within 3 days, with operator, fare, gap to ours and when the fare was captured.
      - **Money:** this service's P&L, plus the same weekday over the last 8 weeks.
      - **Past decisions:** with the outcome when one is loaded.
 3. **Alerts** (`/warnings`)
    - Services behind pace with no decision. In-app only.
    - It opens on your own routes if you own any, and a "Show alerts for" menu picks a person or everyone.
 4. **Money summary** (`/totals`): totals by corridor, date or coach type.
-5. **Fare checker** (`/fare-predictor`): a fare range for a route, date, time, seats left and coach type.
+5. **Fare checker** (`/fare-predictor`): a fare range for a route, date, time, seats left and holiday.
 6. **Pricing rules** (`/settings`): the rules, and who looks after each route. Only the admin can edit them.
 
 ## How it is put together
@@ -75,10 +75,8 @@ The sidebar has the pages, a red badge with the alert count, the time the data w
 - Money goes through `formatINR` only (`₹1,23,456.50`). A missing value is `—`, never ₹0.
 - Reason text is shown exactly as the API sends it.
 - A fare that breaks a rule cannot be chosen.
-- Rivals are shown as Rival A, Rival B and so on.
 
 ## Still needed from the backend
 1. An `/api/v1` prefix (the dev proxy strips it today).
 2. Real authentication. Today `X-User-Id` picks one of the placeholder users in `app/config.py`.
 3. A real file of final seats and revenue after departure, loaded with `python -m scripts.load_outcomes`. Until then "outcome" shows "Not in the data".
-4. The competitor file with AC and Sleeper columns (`competitor_preprocessed3.csv`), so the fare model can use the notebook's finer competitor level.

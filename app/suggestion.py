@@ -1,6 +1,6 @@
 """Module B, step 5: suggested fare for one service (FR-PRC-006/007/009). Advice only.
 
-The fare comes from the Linear Regression fare model (app.fare_notebook, trained by scripts/train_linear_fare_model.py).
+The fare comes from the fare model (app.fare_model, trained by scripts/train_fare_model.py).
 The suggestion is the allowed fare step CLOSEST to that predicted fare (ties go to the lower step)
 among the steps that pass every rule (rules.check_fare): cost floor, ceiling, state cap, largest
 change per step, shortest time between changes. So the model sets the price and the rules bound it.
@@ -16,7 +16,7 @@ import pandas as pd
 from sqlalchemy import text
 
 from app import curve as curve_calc
-from app import fare_notebook, reasons, rivals, rules
+from app import fare_model, reasons, rivals, rules
 from app.desk_labels import coach_label as _coach
 from app.rules import RuleContext, check_fare
 
@@ -160,7 +160,7 @@ def load_inputs(engine, service_id: str) -> dict | None:
     comp = pd.read_sql_query(text("SELECT operator, departure_at, fare, captured_at, route_id FROM competitor_fares "
                                   "WHERE route_id = :r"), engine, params={"r": p["route_id"]},
                              parse_dates=["departure_at", "captured_at"])
-    predicted = fare_notebook.predict_for_service(s, comp, service_id)
+    predicted = fare_model.predict_one(me)
     rival_list = rivals.nearby_rivals(me, comp, me["booking_time"])
     median = float(np.median([r["fare"] for r in rival_list])) if rival_list else None
     extras = curve_calc.curve_extras(me_row, s[s["service_id"] != service_id])
@@ -169,8 +169,7 @@ def load_inputs(engine, service_id: str) -> dict | None:
            "num_ratings": None if pd.isna(me["num_ratings"]) else int(me["num_ratings"]),
            "rival_median": median,
            "coach_type": _coach(me["ac"], me["sleeper"]),
-           "predicted_fare": None if predicted is None else {
-               **predicted, "label": "linear regression prediction (models/nuego_fare_model_linear.pkl)"}}
+           "predicted_fare": None if predicted is None else {**predicted, "label": "linear regression prediction"}}
     seat_row = seat_model.prepare(s)
     seat_row = seat_row[seat_row["service_id"] == service_id]
     return dict(svc=svc, rules=rules.active_rules(engine), seat_fn=seat_fn_for(seat_model.load(), seat_row),

@@ -1,10 +1,15 @@
 import { useState, type FormEvent } from 'react';
 import { ApiError } from '../api/client';
 import { useFarePredict, useRoutes } from '../api/hooks';
-import type { FarePredictInput } from '../api/types';
+import type { FarePredictInput, HolidayScore } from '../api/types';
 import RangeValue from '../components/RangeValue';
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
+const HOLIDAY: Record<HolidayScore, string> = {
+  0: 'No holiday',
+  0.5: 'Day before or after a holiday',
+  1: 'Holiday',
+};
 
 export default function FarePredictorPage() {
   const today = new Date();
@@ -15,8 +20,7 @@ export default function FarePredictorPage() {
   const [date, setDate] = useState(iso(today));
   const [time, setTime] = useState('08:00');
   const [seats, setSeats] = useState('20');
-  const [ac, setAc] = useState<'1' | '0'>('1');
-  const [sleeper, setSleeper] = useState<'1' | '0'>('0');
+  const [holiday, setHoliday] = useState<HolidayScore>(0);
   const [error, setError] = useState<string | null>(null);
   const predict = useFarePredict();
   const route = routes.find((r) => r.id === routeId);
@@ -34,8 +38,7 @@ export default function FarePredictorPage() {
       route_id: routeId,
       departure_at: `${date}T${time}`,
       available_seats: n,
-      ac: ac === '1' ? 1 : 0,
-      sleeper: sleeper === '1' ? 1 : 0,
+      holiday_score: holiday,
     };
     setUsed(input);
     predict.mutate(input, {
@@ -102,35 +105,22 @@ export default function FarePredictorPage() {
             onChange={(e) => setSeats(e.target.value)}
           />
         </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label htmlFor="ac" className="label">
-              Air conditioning
-            </label>
-            <select
-              id="ac"
-              className="input"
-              value={ac}
-              onChange={(e) => setAc(e.target.value === '1' ? '1' : '0')}
-            >
-              <option value="1">AC</option>
-              <option value="0">Non-AC</option>
-            </select>
-          </div>
-          <div>
-            <label htmlFor="sleeper" className="label">
-              Seating
-            </label>
-            <select
-              id="sleeper"
-              className="input"
-              value={sleeper}
-              onChange={(e) => setSleeper(e.target.value === '1' ? '1' : '0')}
-            >
-              <option value="0">Seater</option>
-              <option value="1">Sleeper</option>
-            </select>
-          </div>
+        <div>
+          <label htmlFor="holiday" className="label">
+            Holiday
+          </label>
+          <select
+            id="holiday"
+            className="input"
+            value={holiday}
+            onChange={(e) => setHoliday(Number(e.target.value) as HolidayScore)}
+          >
+            {([0, 0.5, 1] as const).map((h) => (
+              <option key={h} value={h}>
+                {HOLIDAY[h]}
+              </option>
+            ))}
+          </select>
         </div>
         {error && (
           <p role="alert" className="text-sm text-red-700">
@@ -162,25 +152,10 @@ export default function FarePredictorPage() {
                 <dt className="inline font-medium">Inputs used: </dt>
                 <dd className="inline">
                   {route?.label}, {used.departure_at.replace('T', ' ')}, {used.available_seats} seats left,{' '}
-                  {used.ac ? 'AC' : 'Non-AC'} {used.sleeper ? 'Sleeper' : 'Seater'}
+                  {HOLIDAY[used.holiday_score].toLowerCase()}
                 </dd>
               </div>
-              <div>
-                <dt className="inline font-medium">Competitor rows used: </dt>
-                <dd className="inline">{predict.data.competitor_rows_used}</dd>
-              </div>
-              {predict.data.assumptions && (
-                <div>
-                  <dt className="inline font-medium">Assumption: </dt>
-                  <dd className="inline">{predict.data.assumptions}</dd>
-                </div>
-              )}
             </dl>
-            {predict.data.insufficient_data && (
-              <p className="rounded bg-amber-50 p-2 text-amber-900">
-                Low confidence: little competitor data behind this prediction.
-              </p>
-            )}
           </div>
         )}
         {predict.isSuccess && !predict.data && (

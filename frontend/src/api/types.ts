@@ -87,7 +87,7 @@ export interface Suggestion {
   blocked_reason: string | null;
   blocked_detail: BlockedDetail | null;
   engine_fare: number | null;
-  predicted_fare: (Range & { label: string; competitor_rows_used?: number }) | null;
+  predicted_fare: (Range & { label: string }) | null;
   floor: { type: string; value: number | null } | null;
   expected_seats: Range | null;
   expected_revenue: Range | null;
@@ -204,17 +204,25 @@ export interface Elasticity {
 }
 
 export interface Rival {
-  label: string;
+  operator: string;
   departure_at: string;
   minutes_from_ours: number;
   fare: number;
   gap_to_ours: number | null;
+  captured_at: string;
+}
+export interface NearbyFare extends Rival {
+  captured_after_prediction_time: boolean;
 }
 export interface Rivals {
   service_id: string;
+  our_fare: number | null;
   rivals: Rival[];
+  nearby_days: number;
+  nearby_fares: NearbyFare[];
   rating: Rating;
   flags: Flags;
+  note: string;
 }
 
 export interface PipelineStatus {
@@ -273,14 +281,13 @@ export interface FarePrediction {
   fare: Range;
   model_version: string;
   insufficient_data: boolean;
-  competitor_rows_used: number;
-  assumptions: string | null;
   note: string;
 }
+/** 0 no holiday, 0.5 the day before or after one, 1 the holiday itself. */
+export type HolidayScore = 0 | 0.5 | 1;
 export interface FarePredictInput {
   route_id: string;
   departure_at: string;
   available_seats: number;
-  ac: 0 | 1;
-  sleeper: 0 | 1;
+  holiday_score: HolidayScore;
 }

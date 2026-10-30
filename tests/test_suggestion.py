@@ -268,7 +268,7 @@ def test_at_fare_gives_ordered_ranges_and_no_margin_without_cost():
 
 
 def test_rating_and_nearest_rivals_are_returned_even_when_blocked():
-    near = [dict(label="Rival A", minutes_from_ours=-10, fare=480.0), dict(label="Rival B", minutes_from_ours=15, fare=560.0)]
+    near = [dict(operator="FlixBus", minutes_from_ours=-10, fare=480.0), dict(operator="zingbus", minutes_from_ours=15, fare=560.0)]
     for svc in (_svc(), _svc(flag_cancelled=True)):
         s = _run(svc=svc, rivals=near)
         assert s["rating"] == dict(avg=4.0, count=500)

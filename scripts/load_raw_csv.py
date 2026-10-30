@@ -1,35 +1,38 @@
-"""Load the two source CSVs into Postgres as-is (all text) in raw_* tables.
+"""Load the two source CSVs into Postgres as-is (all text), replacing raw_route_details and raw_competitor_data.
 
-Safe by design: refuses to touch a table that already exists.
-Usage: python scripts/load_raw_csv.py
+The CSVs are the source of truth, so a re-run replaces the tables with the files as they are now. A row that
+appears twice in a file is loaded once. Both tables are written in one transaction.
+Run: python -m scripts.load_raw_csv   (python -m scripts.refresh runs it first, then rebuilds everything else)
 """
-import os
 from pathlib import Path
 
 import pandas as pd
-from dotenv import load_dotenv
-from sqlalchemy import create_engine, inspect
+
+from app.db import engine
 
 ROOT = Path(__file__).resolve().parents[1]
-load_dotenv(ROOT / ".env")
-
 FILES = {
     "raw_route_details": ROOT / "data/raw/route_details.csv",
     "raw_competitor_data": ROOT / "data/raw/competitor_data.csv",
 }
 
 
-def main():
-    engine = create_engine(os.environ["DATABASE_URL"])
-    existing = set(inspect(engine).get_table_names())
-    for table, path in FILES.items():
-        if table in existing:
-            print(f"skip {table}: already exists")
-            continue
-        df = pd.read_csv(path, dtype=str, keep_default_na=False)
-        df.columns = [c.strip() for c in df.columns]
-        df.to_sql(table, engine, index=False, method="multi", chunksize=500)
-        print(f"loaded {table}: {len(df)} rows, {len(df.columns)} cols")
+def load(eng, files=FILES) -> dict[str, int]:
+    """Rows loaded per table."""
+    counts = {}
+    with eng.begin() as con:
+        for table, path in files.items():
+            df = pd.read_csv(path, dtype=str, keep_default_na=False)
+            df.columns = [c.strip() for c in df.columns]
+            df = df.drop_duplicates()
+            df.to_sql(table, con, if_exists="replace", index=False, method="multi", chunksize=500)
+            counts[table] = len(df)
+    return counts
+
+
+def main() -> None:
+    for table, n in load(engine).items():
+        print(f"loaded {table}: {n} rows")
 
 
 if __name__ == "__main__":

@@ -9,6 +9,8 @@ import type {
   Flags,
   Pnl,
   Range,
+  NearbyFare,
+  Rival,
   Rivals,
   Suggestion,
   Totals,
@@ -54,7 +56,6 @@ export interface RawSuggestion {
     mid: number;
     high: number;
     label: string;
-    competitor_rows_used?: number;
   } | null;
   coach_type?: string | null;
   suggested_fare: number | null;
@@ -168,29 +169,25 @@ export function adaptElasticity(raw: RawElasticity): Elasticity {
 
 export interface RawRivals {
   service_id: string;
-  rivals: {
-    label: string;
-    departure_at: string;
-    minutes_from_ours: number;
-    fare: number;
-    gap_to_ours: number | null;
-  }[];
+  our_fare_on_sale: number | null;
+  rivals: Rival[];
+  nearby_days: number;
+  nearby_fares: NearbyFare[];
   route_rating: { avg: number | null; count: number | null };
   flags: RawFlags;
+  note: string;
 }
 
 export function adaptRivals(raw: RawRivals): Rivals {
   return {
     service_id: raw.service_id,
-    rivals: raw.rivals.map(({ label, departure_at, minutes_from_ours, fare, gap_to_ours }) => ({
-      label,
-      departure_at,
-      minutes_from_ours,
-      fare,
-      gap_to_ours,
-    })),
+    our_fare: raw.our_fare_on_sale,
+    rivals: raw.rivals,
+    nearby_days: raw.nearby_days,
+    nearby_fares: raw.nearby_fares,
     rating: raw.route_rating,
     flags: mapFlags(raw.flags),
+    note: raw.note,
   };
 }
 
@@ -255,8 +252,6 @@ export interface RawFarePrediction {
   fare_high: number | null;
   model_version: string;
   insufficient_data: boolean;
-  competitor_rows_used: number;
-  assumptions?: string | null;
   note: string;
 }
 
@@ -267,8 +262,6 @@ export function adaptFarePrediction(raw: RawFarePrediction): FarePrediction | nu
         fare,
         model_version: raw.model_version,
         insufficient_data: raw.insufficient_data,
-        competitor_rows_used: raw.competitor_rows_used,
-        assumptions: raw.assumptions ?? null,
         note: raw.note,
       }
     : null;
